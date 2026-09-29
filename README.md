@@ -24,6 +24,8 @@ Run the complete service with Docker:
 docker run --rm --name afwd -e AFWD_PUBLIC_IPV4=YOUR_PUBLIC_IPV4 -e AFWD_PUBLIC_IPV6=YOUR_PUBLIC_IPV6 -e AFWD_HELP_DOMAIN=afwd.nl -p 80:8080 -p 443:8443 -v afwd-data:/data -v afwd-config:/config afwd:local
 ```
 
+View HTTP access logs with `docker logs -f afwd`.
+
 ## Local HTTPS testing
 
 Add `127.0.0.1 afwd.nl` to your hosts file. Start the Rust service, then run Caddy with `deploy/Caddyfile.local`. Run `caddy trust` once so your browser trusts Caddy's local certificate.

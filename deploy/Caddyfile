@@ -5,6 +5,10 @@
 }
 
 :80, :443 {
+	log {
+		output stdout
+		format json
+	}
 	tls {
 		on_demand
 	}
