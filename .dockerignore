@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+target
+Dockerfile
+docker-compose.yml
+*.env
+*.pem
+*.key
+README.md
+tests

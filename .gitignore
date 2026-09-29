@@ -1,0 +1,21 @@
+# Rust build output
+/target/
+/target-validation/
+
+# Local development settings
+.vscode/
+.env
+.env.*
+!.env.example
+
+# Local certificates and private keys
+*.pem
+*.key
+
+# Docker overrides and local state
+docker-compose.override.yml
+
+# Logs and local OS files
+*.log
+.DS_Store
+Thumbs.db

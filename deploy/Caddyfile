@@ -1,0 +1,12 @@
+{
+	on_demand_tls {
+		ask http://127.0.0.1:8080/internal/cert-check
+	}
+}
+
+:80, :443 {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:8080
+}
