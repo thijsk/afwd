@@ -169,7 +169,9 @@ mod tests {
         assert!(page.contains("example.com. 14400 AAAA  2001:db8::1"));
         assert!(page.contains("example.com. 14400 AAAA  2001:db8::2"));
         assert_eq!(
-            DocsConfig::with_help_domain("afwd.nl").help_url().as_deref(),
+            DocsConfig::with_help_domain("afwd.nl")
+                .help_url()
+                .as_deref(),
             Some("https://afwd.nl/")
         );
     }
