@@ -65,7 +65,8 @@ async fn forward(
     let Some(host) = request_host(&headers) else {
         return (StatusCode::BAD_REQUEST, "host header required").into_response();
     };
-    if host.parse::<std::net::IpAddr>().is_ok() && uri.path() == "/" && uri.query().is_none() {
+    let is_root = uri.path() == "/" && uri.query().is_none();
+    if is_root && (host.parse::<std::net::IpAddr>().is_ok() || state.docs.is_help_domain(&host)) {
         return axum::response::Html(render(&state.docs)).into_response();
     }
 

@@ -1,6 +1,12 @@
 use std::time::Duration;
 
-use afwd::{config::parse_txt_record, dns::DnsConfig, http::router, redirect::redirect_url};
+use afwd::{
+    config::parse_txt_record,
+    dns::DnsConfig,
+    docs::DocsConfig,
+    http::{router, router_with_docs},
+    redirect::redirect_url,
+};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -113,6 +119,25 @@ async fn ip_root_request_returns_documentation() {
         )
         .await
         .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn configured_help_domain_returns_documentation() {
+    let response = router_with_docs(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("afwd.nl"),
+    )
+    .oneshot(
+        Request::builder()
+            .uri("/")
+            .header("host", "afwd.nl")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 }

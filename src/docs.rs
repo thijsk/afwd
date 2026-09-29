@@ -4,14 +4,34 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 pub struct DocsConfig {
     public_ipv4: Vec<Ipv4Addr>,
     public_ipv6: Vec<Ipv6Addr>,
+    help_domain: Option<String>,
 }
 
 impl DocsConfig {
+    pub fn with_help_domain(domain: impl Into<String>) -> Self {
+        Self {
+            help_domain: Some(domain.into().trim_end_matches('.').to_ascii_lowercase()),
+            ..Self::default()
+        }
+    }
+
     pub fn from_env() -> Self {
         Self {
             public_ipv4: parse_addresses::<Ipv4Addr>("AFWD_PUBLIC_IPV4"),
             public_ipv6: parse_addresses::<Ipv6Addr>("AFWD_PUBLIC_IPV6"),
+            help_domain: Some(
+                std::env::var("AFWD_HELP_DOMAIN")
+                    .unwrap_or_else(|_| "afwd.nl".to_owned())
+                    .trim_end_matches('.')
+                    .to_ascii_lowercase(),
+            ),
         }
+    }
+
+    pub fn is_help_domain(&self, host: &str) -> bool {
+        self.help_domain
+            .as_deref()
+            .is_some_and(|domain| domain.eq_ignore_ascii_case(host))
     }
 }
 
@@ -122,6 +142,7 @@ mod tests {
                 "2001:db8::1".parse::<Ipv6Addr>().unwrap(),
                 "2001:db8::2".parse::<Ipv6Addr>().unwrap(),
             ],
+            help_domain: Some("afwd.nl".to_owned()),
         };
 
         let page = render(&config);
