@@ -10,7 +10,7 @@ pub struct DocsConfig {
 impl DocsConfig {
     pub fn with_help_domain(domain: impl Into<String>) -> Self {
         Self {
-            help_domain: Some(domain.into().trim_end_matches('.').to_ascii_lowercase()),
+            help_domain: normalize_help_domain(domain.into()),
             ..Self::default()
         }
     }
@@ -19,11 +19,8 @@ impl DocsConfig {
         Self {
             public_ipv4: parse_addresses::<Ipv4Addr>("AFWD_PUBLIC_IPV4"),
             public_ipv6: parse_addresses::<Ipv6Addr>("AFWD_PUBLIC_IPV6"),
-            help_domain: Some(
-                std::env::var("AFWD_HELP_DOMAIN")
-                    .unwrap_or_else(|_| "afwd.nl".to_owned())
-                    .trim_end_matches('.')
-                    .to_ascii_lowercase(),
+            help_domain: normalize_help_domain(
+                std::env::var("AFWD_HELP_DOMAIN").unwrap_or_else(|_| "afwd.nl".to_owned()),
             ),
         }
     }
@@ -33,6 +30,26 @@ impl DocsConfig {
             .as_deref()
             .is_some_and(|domain| domain.eq_ignore_ascii_case(host))
     }
+
+    pub fn help_url(&self) -> Option<String> {
+        self.help_domain
+            .as_deref()
+            .map(|domain| format!("https://{}/", html_escape(domain)))
+    }
+}
+
+fn normalize_help_domain(domain: String) -> Option<String> {
+    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    (!domain.is_empty()).then_some(domain)
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn parse_addresses<T>(name: &str) -> Vec<T>
@@ -151,5 +168,9 @@ mod tests {
         assert!(page.contains("example.com. 14400 A     192.0.2.2"));
         assert!(page.contains("example.com. 14400 AAAA  2001:db8::1"));
         assert!(page.contains("example.com. 14400 AAAA  2001:db8::2"));
+        assert_eq!(
+            DocsConfig::with_help_domain("afwd.nl").help_url().as_deref(),
+            Some("https://afwd.nl/")
+        );
     }
 }

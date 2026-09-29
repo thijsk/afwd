@@ -7,7 +7,7 @@ use axum::{
         uri::Authority,
         HeaderMap, HeaderValue, StatusCode,
     },
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::get,
     Router,
 };
@@ -88,7 +88,15 @@ async fn forward(
             response
         }
         Err(ResolveError::NotFound | ResolveError::Config(_)) => {
-            (StatusCode::NOT_FOUND, "forwarding configuration not found").into_response()
+            let body = state.docs.help_url().map_or_else(
+                || "Forwarding configuration not found.".to_owned(),
+                |help_url| {
+                    format!(
+                        "Forwarding configuration not found. Read the <a href=\"{help_url}\">AFWD help page</a>."
+                    )
+                },
+            );
+            (StatusCode::NOT_FOUND, Html(body)).into_response()
         }
         Err(ResolveError::Dns(_)) => {
             (StatusCode::SERVICE_UNAVAILABLE, "DNS lookup failed").into_response()
