@@ -1,15 +1,10 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 use hickory_resolver::proto::rr::{IntoName, RData, RecordType};
 use hickory_resolver::{
     config::ResolverConfig, name_server::TokioConnectionProvider, TokioResolver,
 };
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 use crate::config::{parse_txt_record, ConfigError, ForwardingConfig};
 
@@ -26,42 +21,25 @@ pub enum ResolveError {
 #[derive(Clone)]
 pub struct DnsConfig {
     resolver: TokioResolver,
-    cache: Arc<RwLock<HashMap<String, (Instant, ForwardingConfig)>>>,
-    ttl: Duration,
 }
 
 impl DnsConfig {
-    pub fn new(ttl: Duration) -> Self {
-        let resolver = TokioResolver::builder_with_config(
+    /// Answers are cached for the record TTL, but never longer than `max_ttl`.
+    pub fn new(max_ttl: Duration) -> Self {
+        let mut builder = TokioResolver::builder_with_config(
             ResolverConfig::default(),
             TokioConnectionProvider::default(),
-        )
-        .build();
+        );
+        let options = builder.options_mut();
+        options.cache_size = 4096;
+        options.positive_max_ttl = Some(max_ttl);
+        options.negative_max_ttl = Some(max_ttl);
         Self {
-            resolver,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            ttl,
+            resolver: builder.build(),
         }
     }
 
     pub async fn resolve(&self, host: &str) -> Result<ForwardingConfig, ResolveError> {
-        if let Some((expires, result)) = self.cache.read().await.get(host) {
-            if *expires > Instant::now() {
-                return Ok(result.clone());
-            }
-        }
-
-        let result = self.lookup(host).await;
-        if let Ok(config) = &result {
-            self.cache
-                .write()
-                .await
-                .insert(host.to_owned(), (Instant::now() + self.ttl, config.clone()));
-        }
-        result
-    }
-
-    async fn lookup(&self, host: &str) -> Result<ForwardingConfig, ResolveError> {
         if let Some(config) = self.lookup_txt(host).await? {
             return Ok(config);
         }
