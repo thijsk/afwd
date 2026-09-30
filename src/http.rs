@@ -204,6 +204,7 @@ const STATS_PAGE: &str = r#"<!doctype html>
     <pre id="setup"></pre>
     <h2>2. View statistics</h2>
     <p><label>Token <input id="token" type="password" autocomplete="current-password" required></label></p>
+    <p><button type="button" id="copy">Copy token</button> <span id="copied"></span></p>
     <p>Your browser can save the domain and token in its password manager.</p>
     <button>Show</button>
   </form>
@@ -218,6 +219,15 @@ const STATS_PAGE: &str = r#"<!doctype html>
       document.getElementById('setup').textContent =
         `Token: ${token}\n\nAdd this DNS record:\n_afwd-stats.${domain}. 3600 TXT "v=afwdstats1 h=${await hex(token)}"`;
       document.getElementById('token').value = token;
+    };
+    document.getElementById('copy').onclick = async () => {
+      const status = document.getElementById('copied');
+      try {
+        await navigator.clipboard.writeText(document.getElementById('token').value);
+        status.textContent = 'Copied.';
+      } catch {
+        status.textContent = 'Copy failed. Select the token above and copy it manually.';
+      }
     };
     const sum = (pairs) => [...pairs.reduce((map, [key, n]) => map.set(key, (map.get(key) || 0) + n), new Map())];
     const section = (title, rows) => {
