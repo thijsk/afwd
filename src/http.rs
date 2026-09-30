@@ -186,6 +186,11 @@ const STATS_PAGE: &str = r#"<!doctype html>
     pre { overflow-x: auto; padding: 1rem; background: #222; border-radius: .4rem; }
     input { width: 100%; box-sizing: border-box; }
     .warning { border: 3px solid #d33; border-radius: .4rem; padding: 1rem; font-size: 1.15rem; }
+    table { border-collapse: collapse; width: 100%; }
+    td { border-bottom: 1px solid #8888; padding: .25rem .5rem; overflow-wrap: anywhere; }
+    td:nth-child(2) { text-align: right; white-space: nowrap; }
+    td:nth-child(3) { width: 40%; }
+    .bar { height: .8rem; min-width: 1px; background: #4a8; border-radius: .2rem; }
   </style>
 </head>
 <body>
@@ -202,7 +207,7 @@ const STATS_PAGE: &str = r#"<!doctype html>
     <p>Your browser can save the domain and token in its password manager.</p>
     <button>Show</button>
   </form>
-  <pre id="result"></pre>
+  <div id="result"></div>
   <script>
     const hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
       .map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -214,15 +219,40 @@ const STATS_PAGE: &str = r#"<!doctype html>
         `Token: ${token}\n\nAdd this DNS record:\n_afwd-stats.${domain}. 3600 TXT "v=afwdstats1 h=${await hex(token)}"`;
       document.getElementById('token').value = token;
     };
+    const sum = (pairs) => [...pairs.reduce((map, [key, n]) => map.set(key, (map.get(key) || 0) + n), new Map())];
+    const section = (title, rows) => {
+      const heading = document.createElement('h3');
+      heading.textContent = title;
+      const table = document.createElement('table');
+      const max = Math.max(1, ...rows.map(([, n]) => n));
+      for (const [label, n] of rows) {
+        const row = table.insertRow();
+        row.insertCell().textContent = label;
+        row.insertCell().textContent = n;
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.width = `${(100 * n) / max}%`;
+        row.insertCell().append(bar);
+      }
+      document.getElementById('result').append(heading, rows.length ? table : 'No data yet.');
+    };
     document.getElementById('view').onsubmit = async (event) => {
       event.preventDefault();
       const domain = document.getElementById('domain').value.trim();
       const response = await fetch(`/api/stats/${encodeURIComponent(domain)}`, {
         headers: { Authorization: `Bearer ${document.getElementById('token').value.trim()}` },
       });
-      document.getElementById('result').textContent = response.ok
-        ? JSON.stringify(await response.json(), null, 2)
-        : `Error ${response.status}`;
+      const result = document.getElementById('result');
+      if (!response.ok) {
+        result.textContent = `Error ${response.status}`;
+        return;
+      }
+      const data = await response.json();
+      result.replaceChildren();
+      section('Hits per day (UTC)', sum(data.hits.map(([hour, , n]) => [new Date(hour * 1000).toISOString().slice(0, 10), n])));
+      section('Status', sum(data.hits.map(([, status, n]) => [status, n])).sort((a, b) => b[1] - a[1]));
+      section('Top paths', data.paths);
+      section('Top referrers', data.referrers);
     };
   </script>
 </body>
