@@ -118,7 +118,7 @@ const DOCS_TEMPLATE: &str = r#"<!doctype html>
     <tr><th>Option</th><th>Values</th><th>Default</th><th>Meaning</th></tr>
     <tr><td><code>dest</code></td><td>HTTP or HTTPS URL</td><td>required</td><td>Forwarding destination.</td></tr>
     <tr><td><code>preserve</code></td><td><code>y</code> or <code>n</code></td><td><code>n</code></td><td>Keep the source query string.</td></tr>
-    <tr><td><code>append</code></td><td><code>y</code> or <code>n</code></td><td><code>n</code></td><td>Append the source domain as <code>domain=...</code>.</td></tr>
+    <tr><td><code>append</code></td><td><code>y</code> or <code>n</code></td><td><code>n</code></td><td>Append the source domain to <code>dest</code> before any fragment. Include any prefix, such as <code>?domain=</code>, in <code>dest</code>.</td></tr>
     <tr><td><code>type</code></td><td>301, 302, 307, 308, perm, temp</td><td>302</td><td>HTTP redirect status.</td></tr>
     <tr><td><code>cert</code></td><td><code>no</code></td><td>enabled</td><td>Prevent automatic HTTPS certificate issuance.</td></tr>
   </table>

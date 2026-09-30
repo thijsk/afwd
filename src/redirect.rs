@@ -8,18 +8,11 @@ pub fn redirect_url(config: &ForwardingConfig, host: &str, source_uri: &str) -> 
     if config.preserve_query {
         destination.set_query(source.query());
     } else if config.append_domain {
-        let mut query = destination.query().unwrap_or_default().to_owned();
         let domain = url::form_urlencoded::byte_serialize(host.as_bytes()).collect::<String>();
-        if let Some(prefix) = query.strip_suffix("domain=") {
-            query = format!("{prefix}domain={domain}");
-        } else if query.is_empty() {
-            query = format!("domain={domain}");
-        } else {
-            query.push('&');
-            query.push_str("domain=");
-            query.push_str(&domain);
-        }
-        destination.set_query(Some(&query));
+        return Some(match destination.as_str().split_once('#') {
+            Some((prefix, fragment)) => format!("{prefix}{domain}#{fragment}"),
+            None => format!("{destination}{domain}"),
+        });
     } else {
         destination.set_query(None);
     }

@@ -39,26 +39,37 @@ fn preserves_source_query() {
 
 #[test]
 fn appends_domain_to_existing_destination_query() {
-    let config =
-        parse_txt_record("v=afwd1 type=perm append=y dest=https://www.example.net/?source=afwd")
-            .unwrap();
+    let config = parse_txt_record(
+        "v=afwd1 type=perm append=y dest=https://www.example.net/?source=afwd&host=",
+    )
+    .unwrap();
 
     assert_eq!(config.status, 301);
     assert_eq!(
         redirect_url(&config, "example.com", "/").unwrap(),
-        "https://www.example.net/?source=afwd&domain=example.com"
+        "https://www.example.net/?source=afwd&host=example.com"
     );
 }
 
 #[test]
-fn replaces_domain_placeholder_when_appending() {
+fn appends_domain_to_destination_path() {
     let config =
-        parse_txt_record("v=afwd1 type=perm append=y dest=https://www.example.net/?domain=")
-            .unwrap();
+        parse_txt_record("v=afwd1 type=perm append=y dest=https://www.example.net/for/").unwrap();
 
     assert_eq!(
         redirect_url(&config, "example.com", "/").unwrap(),
-        "https://www.example.net/?domain=example.com"
+        "https://www.example.net/for/example.com"
+    );
+}
+
+#[test]
+fn appends_domain_before_destination_fragment() {
+    let config =
+        parse_txt_record("v=afwd1 append=y dest=https://www.example.net/?host=#section").unwrap();
+
+    assert_eq!(
+        redirect_url(&config, "example.com", "/").unwrap(),
+        "https://www.example.net/?host=example.com#section"
     );
 }
 
