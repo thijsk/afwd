@@ -61,6 +61,9 @@ async fn cert_check(
     if is_ip_address(domain) {
         return StatusCode::FORBIDDEN;
     }
+    if state.docs.is_help_domain(domain) {
+        return StatusCode::OK;
+    }
 
     match state.dns.resolve(domain).await {
         Ok(config) if config.request_certificate => StatusCode::OK,
