@@ -126,7 +126,7 @@ fn request_host(headers: &HeaderMap) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{request_host};
+    use super::request_host;
     use axum::http::{header::HOST, HeaderMap, HeaderValue};
 
     #[test]
