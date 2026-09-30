@@ -12,6 +12,7 @@ use axum::{
     Json, Router,
 };
 use sha2::{Digest, Sha256};
+use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
 use crate::{
     dns::{DnsConfig, ResolveError},
@@ -85,6 +86,19 @@ async fn forward(
         return axum::response::Html(render(&state.docs)).into_response();
     }
     if state.docs.is_help_domain(&host) {
+        if uri.path() == "/.well-known/security.txt" {
+            let expires = (OffsetDateTime::now_utc() + Duration::days(365))
+                .format(&Rfc3339)
+                .unwrap();
+            return (
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
+                format!("Contact: mailto:info@trilobit.nl\nExpires: {expires}\n"),
+            )
+                .into_response();
+        }
         if uri.path() == "/stats" {
             return Html(STATS_PAGE).into_response();
         }

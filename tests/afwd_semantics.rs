@@ -9,8 +9,8 @@ use afwd::{
     stats::Stats,
 };
 use axum::{
-    body::Body,
-    http::{Request, StatusCode},
+    body::{to_bytes, Body},
+    http::{header::CONTENT_TYPE, Request, StatusCode},
 };
 use tower::ServiceExt;
 
@@ -164,4 +164,40 @@ async fn configured_help_domain_returns_documentation() {
     .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn security_txt_is_served_only_on_help_domain() {
+    let app = router_with_docs(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("afwd.nl"),
+    );
+    let request = |host: &str| {
+        Request::builder()
+            .uri("/.well-known/security.txt")
+            .header("host", host)
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let response = app.clone().oneshot(request("afwd.nl")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
+    assert!(body.starts_with("Contact: mailto:info@trilobit.nl\nExpires: "));
+    let expires = body
+        .trim()
+        .strip_prefix("Contact: mailto:info@trilobit.nl\nExpires: ")
+        .unwrap();
+    assert!(
+        time::OffsetDateTime::parse(expires, &time::format_description::well_known::Rfc3339)
+            .is_ok()
+    );
+
+    let response = app.oneshot(request("customer.invalid")).await.unwrap();
+    assert_ne!(response.status(), StatusCode::OK);
 }
