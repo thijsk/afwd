@@ -30,7 +30,7 @@ View HTTP access logs with `docker logs -f afwd`.
 
 ## Usage statistics
 
-The service counts requests for each domain that has an AFWD TXT record. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days.
+The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/` and `/stats` on the help domain, but not its statistics API or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days.
 
 The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). Containers on the same host can share the `afwd-stats` volume.
 

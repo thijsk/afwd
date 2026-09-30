@@ -83,6 +83,9 @@ async fn forward(
     };
     let is_root = uri.path() == "/" && uri.query().is_none();
     if is_root && (is_ip_address(&host) || state.docs.is_help_domain(&host)) {
+        if state.docs.is_help_domain(&host) {
+            record(&state, &host, "200", &uri, &headers);
+        }
         return axum::response::Html(render(&state.docs)).into_response();
     }
     if state.docs.is_help_domain(&host) {
@@ -100,6 +103,7 @@ async fn forward(
                 .into_response();
         }
         if uri.path() == "/stats" {
+            record(&state, &host, "200", &uri, &headers);
             return Html(STATS_PAGE).into_response();
         }
         if let Some(domain) = uri.path().strip_prefix("/api/stats/") {

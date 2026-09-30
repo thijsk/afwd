@@ -167,6 +167,54 @@ async fn configured_help_domain_returns_documentation() {
 }
 
 #[tokio::test]
+async fn help_pages_are_counted_but_other_help_routes_are_not() {
+    let stats = Stats::open(":memory:").unwrap();
+    let app = router_with_stats(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("help.example"),
+        Some(stats.clone()),
+    );
+    for (host, path) in [
+        ("help.example", "/"),
+        ("help.example", "/stats"),
+        ("help.example", "/.well-known/security.txt"),
+        ("help.example", "/api/stats/example.com"),
+        ("127.0.0.1", "/"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("host", host)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if path == "/" || path == "/stats" {
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+    }
+
+    stats.flush().await.unwrap();
+    let report = stats.query("help.example".to_owned()).await.unwrap();
+    assert_eq!(
+        report.hits.iter().map(|(_, _, count)| count).sum::<i64>(),
+        2
+    );
+    assert_eq!(report.paths.len(), 2);
+    assert!(report.paths.contains(&("/".to_owned(), 1)));
+    assert!(report.paths.contains(&("/stats".to_owned(), 1)));
+    assert!(stats
+        .query("127.0.0.1".to_owned())
+        .await
+        .unwrap()
+        .hits
+        .is_empty());
+}
+
+#[tokio::test]
 async fn security_txt_is_served_only_on_help_domain() {
     let app = router_with_docs(
         DnsConfig::new(Duration::from_secs(1)),
