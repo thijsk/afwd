@@ -185,18 +185,21 @@ const STATS_PAGE: &str = r#"<!doctype html>
     body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 2rem 1.25rem; }
     pre { overflow-x: auto; padding: 1rem; background: #222; border-radius: .4rem; }
     input { width: 100%; box-sizing: border-box; }
+    .warning { border: 3px solid #d33; border-radius: .4rem; padding: 1rem; font-size: 1.15rem; }
   </style>
 </head>
 <body>
   <h1>AFWD statistics</h1>
-  <p><label>Domain <input id="domain" form="view" placeholder="example.com" required></label></p>
-  <h2>1. Create a token</h2>
-  <p>The token is created in your browser and is never sent to the server. Keep it secret.</p>
-  <button id="generate">Create token</button>
-  <pre id="setup"></pre>
-  <h2>2. View statistics</h2>
+  <p class="warning"><strong>You are responsible for storing your token.</strong> AFWD does not store the token and cannot recover it. If you lose it, create a new token and replace the DNS record.</p>
   <form id="view">
-    <p><label>Token <input id="token" type="password" required></label></p>
+    <p><label>Domain <input id="domain" autocomplete="username" placeholder="example.com" required></label></p>
+    <h2>1. Create a token</h2>
+    <p>The token is created in your browser and is never sent to the server. Keep it secret.</p>
+    <button type="button" id="generate">Create token</button>
+    <pre id="setup"></pre>
+    <h2>2. View statistics</h2>
+    <p><label>Token <input id="token" type="password" autocomplete="current-password" required></label></p>
+    <p>Your browser can save the domain and token in its password manager.</p>
     <button>Show</button>
   </form>
   <pre id="result"></pre>
