@@ -154,7 +154,12 @@ mod tests {
         let first = Stats::open(path).unwrap();
         let second = Stats::open(path).unwrap();
 
-        first.record("Example.com", "302", "/a", Some("https://ref.example/x?y=1"));
+        first.record(
+            "Example.com",
+            "302",
+            "/a",
+            Some("https://ref.example/x?y=1"),
+        );
         second.record("example.com", "302", "/a", None);
         first.flush().await.unwrap();
         second.flush().await.unwrap();

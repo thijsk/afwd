@@ -79,7 +79,11 @@ impl DnsConfig {
 
     /// SHA-256 hex hashes of stats tokens from `_afwd-stats.<host>` TXT records.
     pub async fn stats_hashes(&self, host: &str) -> Vec<String> {
-        let Ok(records) = self.resolver.txt_lookup(format!("_afwd-stats.{host}.")).await else {
+        let Ok(records) = self
+            .resolver
+            .txt_lookup(format!("_afwd-stats.{host}."))
+            .await
+        else {
             return Vec::new();
         };
         records
