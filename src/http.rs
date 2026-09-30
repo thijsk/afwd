@@ -189,13 +189,13 @@ const STATS_PAGE: &str = r#"<!doctype html>
 </head>
 <body>
   <h1>AFWD statistics</h1>
+  <p><label>Domain <input id="domain" form="view" placeholder="example.com" required></label></p>
   <h2>1. Create a token</h2>
   <p>The token is created in your browser and is never sent to the server. Keep it secret.</p>
   <button id="generate">Create token</button>
   <pre id="setup"></pre>
   <h2>2. View statistics</h2>
   <form id="view">
-    <p><label>Domain <input id="domain" placeholder="example.com" required></label></p>
     <p><label>Token <input id="token" type="password" required></label></p>
     <button>Show</button>
   </form>
@@ -204,10 +204,12 @@ const STATS_PAGE: &str = r#"<!doctype html>
     const hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
       .map((b) => b.toString(16).padStart(2, '0')).join('');
     document.getElementById('generate').onclick = async () => {
+      const domain = document.getElementById('domain').value.trim().replace(/\.$/, '') || 'example.com';
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       document.getElementById('setup').textContent =
-        `Token: ${token}\n\nAdd this DNS record:\n_afwd-stats.example.com. 3600 TXT "v=afwdstats1 h=${await hex(token)}"`;
+        `Token: ${token}\n\nAdd this DNS record:\n_afwd-stats.${domain}. 3600 TXT "v=afwdstats1 h=${await hex(token)}"`;
+      document.getElementById('token').value = token;
     };
     document.getElementById('view').onsubmit = async (event) => {
       event.preventDefault();
