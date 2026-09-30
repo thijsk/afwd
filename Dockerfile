@@ -17,6 +17,7 @@ RUN apt-get update \
 ENV AFWD_BIND=127.0.0.1:9000 \
 	CADDY_DATA_DIR=/data \
 	CADDY_CONFIG_DIR=/config \
+	AFWD_STATS_DB=/stats/afwd.db \
 	HOME=/data
 
 EXPOSE 8080 8443
@@ -26,9 +27,9 @@ COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 COPY deploy/Caddyfile.container /etc/caddy/Caddyfile
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN mkdir --parents /data /config \
+RUN mkdir --parents /data /config /stats \
 	&& chmod 0555 /usr/local/bin/entrypoint.sh \
-	&& chown --recursive 65532:65532 /data /config /etc/caddy /usr/local/bin/afwd /usr/local/bin/caddy /usr/local/bin/entrypoint.sh
+	&& chown --recursive 65532:65532 /data /config /stats /etc/caddy /usr/local/bin/afwd /usr/local/bin/caddy /usr/local/bin/entrypoint.sh
 
 USER 65532:65532
 

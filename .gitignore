@@ -14,6 +14,10 @@
 
 # Docker overrides and local state
 docker-compose.override.yml
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
 
 # Logs and local OS files
 *.log

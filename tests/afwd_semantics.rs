@@ -4,8 +4,9 @@ use afwd::{
     config::parse_txt_record,
     dns::DnsConfig,
     docs::DocsConfig,
-    http::{router, router_with_docs},
+    http::{router, router_with_docs, router_with_stats},
     redirect::redirect_url,
+    stats::Stats,
 };
 use axum::{
     body::Body,
@@ -121,6 +122,29 @@ async fn ip_root_request_returns_documentation() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn stats_api_rejects_unknown_token_and_is_limited_to_help_domain() {
+    let app = router_with_stats(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("afwd.nl"),
+        Some(Stats::open(":memory:").unwrap()),
+    );
+    let request = |host: &str| {
+        Request::builder()
+            .uri("/api/stats/example.invalid")
+            .header("host", host)
+            .header("authorization", "Bearer wrong")
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let response = app.clone().oneshot(request("afwd.nl")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app.oneshot(request("customer.invalid")).await.unwrap();
+    assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

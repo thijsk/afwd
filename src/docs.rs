@@ -141,6 +141,16 @@ v=afwd1 type=perm append=y dest=https://example.net/?domain=</pre>
 
   <h2>HTTPS</h2>
   <p>SSL/TLS certificates are provided automatically when you use HTTPS. Visit your domain after DNS changes so certificate setup can start.</p>
+  <h2>Statistics</h2>
+  <p>The service counts the requests to your domain: hits per hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. Statistics are kept for 90 days.</p>
+  <p>To see the statistics for your domain:</p>
+  <ol>
+    <li>Open the <a href="/stats">statistics page</a> and click <em>Create token</em>. Your browser creates the token. Keep the token secret.</li>
+    <li>Add the TXT record that the page shows. It contains the SHA-256 hash of the token, not the token:
+      <pre>_afwd-stats.example.com. 3600 TXT "v=afwdstats1 h=&lt;sha256 hex of token&gt;"</pre></li>
+    <li>Enter your domain and the token on the statistics page.</li>
+  </ol>
+  <p>To give access to more tokens, add more <code>h=</code> records. To remove access, delete the record.</p>
     <p>This service is based on the specifications defined by <a href="https://afwd.uk/">afwd.uk</a>.</p>
 </body>
 </html>

@@ -77,6 +77,30 @@ impl DnsConfig {
         Err(ResolveError::NotFound)
     }
 
+    /// SHA-256 hex hashes of stats tokens from `_afwd-stats.<host>` TXT records.
+    pub async fn stats_hashes(&self, host: &str) -> Vec<String> {
+        let Ok(records) = self.resolver.txt_lookup(format!("_afwd-stats.{host}.")).await else {
+            return Vec::new();
+        };
+        records
+            .iter()
+            .map(|record| {
+                record
+                    .txt_data()
+                    .iter()
+                    .map(|chunk| String::from_utf8_lossy(chunk))
+                    .collect::<String>()
+            })
+            .filter(|text| text.starts_with("v=afwdstats1"))
+            .flat_map(|text| {
+                text.split_whitespace()
+                    .filter_map(|token| token.strip_prefix("h="))
+                    .map(str::to_ascii_lowercase)
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     async fn lookup_txt<N: IntoName>(
         &self,
         host: N,

@@ -21,10 +21,24 @@ Set `AFWD_PUBLIC_IPV4` and `AFWD_PUBLIC_IPV6` to comma-separated public addresse
 Run the complete service with Docker:
 
 ```powershell
-docker run --rm --name afwd -e AFWD_PUBLIC_IPV4=YOUR_PUBLIC_IPV4 -e AFWD_PUBLIC_IPV6=YOUR_PUBLIC_IPV6 -e AFWD_HELP_DOMAIN=afwd.nl -p 80:8080 -p 443:8443 -v afwd-data:/data -v afwd-config:/config afwd:local
+docker run --rm --name afwd -e AFWD_PUBLIC_IPV4=YOUR_PUBLIC_IPV4 -e AFWD_PUBLIC_IPV6=YOUR_PUBLIC_IPV6 -e AFWD_HELP_DOMAIN=afwd.nl -p 80:8080 -p 443:8443 -v afwd-data:/data -v afwd-config:/config -v afwd-stats:/stats afwd:local
 ```
 
 View HTTP access logs with `docker logs -f afwd`.
+
+## Usage statistics
+
+The service counts requests for each domain that has an AFWD TXT record. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days.
+
+The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). Containers on the same host can share the `afwd-stats` volume.
+
+To see the statistics for a domain, the owner opens `https://<help domain>/stats` and creates a token. Then the owner adds this TXT record:
+
+```text
+_afwd-stats.example.com. 3600 TXT "v=afwdstats1 h=<sha256 hex of token>"
+```
+
+The API is `GET https://<help domain>/api/stats/example.com` with the header `Authorization: Bearer <token>`. To rotate tokens, add more `h=` records. To remove access, delete the record.
 
 ## Local HTTPS testing
 
