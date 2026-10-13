@@ -122,6 +122,25 @@ impl Stats {
         .await
         .expect("stats query task panicked")
     }
+
+    pub async fn top_domains(&self, excluded_host: &str) -> rusqlite::Result<Vec<(String, i64)>> {
+        let excluded_host = excluded_host.to_ascii_lowercase();
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let db = db.lock().unwrap();
+            let mut statement = db.prepare_cached(
+                "SELECT host, SUM(n) AS total FROM counts
+                 WHERE kind = 'status' AND host != ?1
+                 GROUP BY host ORDER BY total DESC, host ASC LIMIT 100",
+            )?;
+            let domains = statement
+                .query_map([excluded_host], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect();
+            domains
+        })
+        .await
+        .expect("stats query task panicked")
+    }
 }
 
 fn top(db: &Connection, host: &str, kind: &str) -> rusqlite::Result<Vec<(String, i64)>> {
@@ -171,6 +190,33 @@ mod tests {
         assert_eq!(report.referrers, vec![("ref.example".to_owned(), 1)]);
 
         drop((first, second));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path}{suffix}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn top_domains_are_ranked_capped_and_exclude_the_help_domain() {
+        let path = std::env::temp_dir().join(format!("afwd-domains-{}.db", std::process::id()));
+        let path = path.to_str().unwrap();
+        let stats = Stats::open(path).unwrap();
+
+        stats.record("help.example", "200", "/", None);
+        for index in 0..101 {
+            let domain = format!("domain-{index:03}.example");
+            for _ in 0..=index {
+                stats.record(&domain, "302", "/", None);
+            }
+        }
+        stats.flush().await.unwrap();
+
+        let domains = stats.top_domains("HELP.EXAMPLE").await.unwrap();
+        assert_eq!(domains.len(), 100);
+        assert_eq!(domains[0], ("domain-100.example".to_owned(), 101));
+        assert_eq!(domains[99], ("domain-001.example".to_owned(), 2));
+        assert!(!domains.iter().any(|(domain, _)| domain == "help.example"));
+
+        drop(stats);
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{path}{suffix}"));
         }

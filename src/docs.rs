@@ -31,6 +31,10 @@ impl DocsConfig {
             .is_some_and(|domain| domain.eq_ignore_ascii_case(host))
     }
 
+    pub fn help_domain(&self) -> Option<&str> {
+        self.help_domain.as_deref()
+    }
+
     pub fn help_url(&self) -> Option<String> {
         self.help_domain
             .as_deref()
@@ -143,6 +147,7 @@ v=afwd1 type=perm append=y dest=https://example.net/?domain=</pre>
   <p>SSL/TLS certificates are provided automatically when you use HTTPS. Visit your domain after DNS changes so certificate setup can start.</p>
   <h2>Statistics</h2>
   <p>The service counts the requests to your domain: hits per hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. Statistics are kept for 90 days.</p>
+    <p>See the <a href="/domains">100 most active domains</a> across the service.</p>
   <p>To see the statistics for your domain:</p>
   <ol>
     <li>Open the <a href="/stats">statistics page</a> and click <em>Create token</em>. Your browser creates the token. Keep the token secret.</li>

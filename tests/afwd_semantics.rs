@@ -159,6 +159,65 @@ async fn stats_api_rejects_unknown_token_and_is_limited_to_help_domain() {
 }
 
 #[tokio::test]
+async fn domain_leaderboard_is_public_and_limited_to_help_domain() {
+    let stats = Stats::open(":memory:").unwrap();
+    stats.record("popular.example", "302", "/", None);
+    stats.record("help.example", "200", "/", None);
+    stats.flush().await.unwrap();
+    let app = router_with_stats(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("help.example"),
+        Some(stats),
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/domains")
+                .header("host", "help.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert!(std::str::from_utf8(&body)
+        .unwrap()
+        .contains("100 most active domains"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/domains")
+                .header("host", "help.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
+    assert!(body.contains("popular.example"));
+    assert!(!body.contains("help.example"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/domains")
+                .header("host", "customer.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn configured_help_domain_returns_documentation() {
     let response = router_with_docs(
         DnsConfig::new(Duration::from_secs(1)),

@@ -106,6 +106,22 @@ async fn forward(
             record(&state, &host, "200", &uri, &headers);
             return Html(STATS_PAGE).into_response();
         }
+        if uri.path() == "/domains" {
+            return Html(DOMAINS_PAGE).into_response();
+        }
+        if uri.path() == "/api/domains" {
+            let Some(stats) = &state.stats else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            let excluded_host = state.docs.help_domain().unwrap_or_default();
+            return match stats.top_domains(excluded_host).await {
+                Ok(domains) => ([(CACHE_CONTROL, "no-store")], Json(domains)).into_response(),
+                Err(error) => {
+                    tracing::warn!(%error, "domain leaderboard query failed");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            };
+        }
         if let Some(domain) = uri.path().strip_prefix("/api/stats/") {
             return stats_api(&state, &headers, domain).await;
         }
@@ -283,6 +299,55 @@ const STATS_PAGE: &str = r#"<!doctype html>
       section('Top referrers', data.referrers);
     };
   </script>
+</body>
+</html>
+"#;
+
+const DOMAINS_PAGE: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Most active domains | AFWD</title>
+    <style>
+        :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+        body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 2rem 1.25rem; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border-bottom: 1px solid #8888; padding: .5rem; text-align: left; }
+        td:first-child { width: 3rem; }
+        td:last-child { text-align: right; white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <p><a href="/">AFWD</a></p>
+    <h1>100 most active domains</h1>
+    <p>Ranked by requests in the last 90 days.</p>
+    <p id="status">Loading...</p>
+    <table hidden>
+        <thead><tr><th>#</th><th>Domain</th><th>Requests</th></tr></thead>
+        <tbody id="domains"></tbody>
+    </table>
+    <script>
+        (async () => {
+            const status = document.getElementById('status');
+            try {
+                const response = await fetch('/api/domains', { cache: 'no-store' });
+                if (!response.ok) throw new Error(`Error ${response.status}`);
+                const domains = await response.json();
+                const body = document.getElementById('domains');
+                domains.forEach(([domain, requests], index) => {
+                    const row = body.insertRow();
+                    row.insertCell().textContent = index + 1;
+                    row.insertCell().textContent = domain;
+                    row.insertCell().textContent = requests.toLocaleString();
+                });
+                document.querySelector('table').hidden = domains.length === 0;
+                status.textContent = domains.length ? '' : 'No active domains yet.';
+            } catch (error) {
+                status.textContent = `Could not load domains: ${error.message}`;
+            }
+        })();
+    </script>
 </body>
 </html>
 "#;
