@@ -130,17 +130,56 @@ impl Stats {
             let db = db.lock().unwrap();
             let mut statement = db.prepare_cached(
                 "SELECT host, SUM(n) AS total FROM counts
-                 WHERE kind = 'status' AND host != ?1
-                 GROUP BY host ORDER BY total DESC, host ASC LIMIT 100",
+                 WHERE kind = 'status' AND host != ?1 GROUP BY host",
             )?;
-            let domains = statement
-                .query_map([excluded_host], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .collect();
-            domains
+            let rows = statement
+                .query_map([excluded_host], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut counts = HashMap::new();
+            for (host, total) in rows {
+                let domain = registrable_domain(&host);
+                *counts.entry(domain).or_insert(0) += total;
+            }
+            let mut rows = counts.into_iter().collect::<Vec<_>>();
+            rows.sort_by(|(left, left_total), (right, right_total)| {
+                right_total
+                    .cmp(left_total)
+                    .then_with(|| left.cmp(right))
+            });
+            rows.truncate(100);
+            Ok(rows)
         })
         .await
         .expect("stats query task panicked")
     }
+}
+
+fn registrable_domain(host: &str) -> String {
+    let host = host.trim_matches('.').trim().to_ascii_lowercase();
+    if host.is_empty() {
+        return String::new();
+    }
+    let labels = host
+        .split('.')
+        .filter(|label| !label.is_empty())
+        .collect::<Vec<_>>();
+    if labels.len() <= 2 {
+        return labels.join(".");
+    }
+    if labels[labels.len() - 2].len() == 2 {
+        return labels
+            .iter()
+            .skip(labels.len() - 3)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(".");
+    }
+    labels
+        .iter()
+        .skip(labels.len() - 2)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn top(db: &Connection, host: &str, kind: &str) -> rusqlite::Result<Vec<(String, i64)>> {
@@ -220,5 +259,24 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{path}{suffix}"));
         }
+    }
+
+    #[tokio::test]
+    async fn top_domains_groups_subdomains_together_by_registrable_domain() {
+        let stats = Stats::open(":memory:").unwrap();
+        stats.record("a.example.com", "302", "/", None);
+        stats.record("b.example.com", "302", "/", None);
+        stats.record("c.example.net", "302", "/", None);
+        stats.record("d.example.co.uk", "302", "/", None);
+        stats.record("e.example.co.uk", "302", "/", None);
+        stats.record("help.example.com", "200", "/", None);
+        stats.flush().await.unwrap();
+
+        let domains = stats.top_domains("help.example.com").await.unwrap();
+        assert_eq!(domains, vec![
+            ("example.co.uk".to_owned(), 2),
+            ("example.com".to_owned(), 2),
+            ("example.net".to_owned(), 1),
+        ]);
     }
 }
