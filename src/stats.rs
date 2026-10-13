@@ -133,7 +133,9 @@ impl Stats {
                  WHERE kind = 'status' AND host != ?1 GROUP BY host",
             )?;
             let rows = statement
-                .query_map([excluded_host], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+                .query_map([excluded_host], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
                 .collect::<Result<Vec<_>, _>>()?;
             let mut counts = HashMap::new();
             for (host, total) in rows {
@@ -142,9 +144,7 @@ impl Stats {
             }
             let mut rows = counts.into_iter().collect::<Vec<_>>();
             rows.sort_by(|(left, left_total), (right, right_total)| {
-                right_total
-                    .cmp(left_total)
-                    .then_with(|| left.cmp(right))
+                right_total.cmp(left_total).then_with(|| left.cmp(right))
             });
             rows.truncate(100);
             Ok(rows)
@@ -273,10 +273,13 @@ mod tests {
         stats.flush().await.unwrap();
 
         let domains = stats.top_domains("help.example.com").await.unwrap();
-        assert_eq!(domains, vec![
-            ("example.co.uk".to_owned(), 2),
-            ("example.com".to_owned(), 2),
-            ("example.net".to_owned(), 1),
-        ]);
+        assert_eq!(
+            domains,
+            vec![
+                ("example.co.uk".to_owned(), 2),
+                ("example.com".to_owned(), 2),
+                ("example.net".to_owned(), 1),
+            ]
+        );
     }
 }
