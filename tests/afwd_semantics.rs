@@ -319,3 +319,30 @@ async fn security_txt_is_served_only_on_help_domain() {
     let response = app.oneshot(request("customer.invalid")).await.unwrap();
     assert_ne!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn robots_txt_is_served_only_on_help_domain() {
+    let app = router_with_docs(
+        DnsConfig::new(Duration::from_secs(1)),
+        DocsConfig::with_help_domain("afwd.nl"),
+    );
+    let request = |host: &str| {
+        Request::builder()
+            .uri("/robots.txt")
+            .header("host", host)
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let response = app.clone().oneshot(request("afwd.nl")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(&body[..], b"User-agent: *\nDisallow: /api/\n");
+
+    let response = app.oneshot(request("customer.invalid")).await.unwrap();
+    assert_ne!(response.status(), StatusCode::OK);
+}

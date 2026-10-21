@@ -102,6 +102,16 @@ async fn forward(
             )
                 .into_response();
         }
+        if uri.path() == "/robots.txt" {
+            return (
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
+                "User-agent: *\nDisallow: /api/\n",
+            )
+                .into_response();
+        }
         if uri.path() == "/stats" {
             record(&state, &host, "200", &uri, &headers);
             return Html(STATS_PAGE).into_response();
