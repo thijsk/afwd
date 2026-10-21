@@ -227,8 +227,8 @@ const STATS_PAGE: &str = r#"<!doctype html>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 2rem 1.25rem; }
-    pre { overflow-x: auto; padding: 1rem; background: #222; border-radius: .4rem; }
     input { width: 100%; box-sizing: border-box; }
+    code { display: block; overflow-wrap: anywhere; padding: .5rem; background: #8882; border-radius: .4rem; }
     .warning { border: 3px solid #d33; border-radius: .4rem; padding: 1rem; font-size: 1.15rem; }
     table { border-collapse: collapse; width: 100%; }
     td { border-bottom: 1px solid #8888; padding: .25rem .5rem; overflow-wrap: anywhere; }
@@ -239,40 +239,93 @@ const STATS_PAGE: &str = r#"<!doctype html>
 </head>
 <body>
   <h1>AFWD statistics</h1>
-  <p class="warning"><strong>You are responsible for storing your token.</strong> AFWD does not store the token and cannot recover it. If you lose it, create a new token and replace the DNS record.</p>
+  <p><label>Domain <input id="domain" placeholder="example.com" autocomplete="off" required></label></p>
+
+  <h2>1. Create a token</h2>
+  <p>The token is created in your browser and is never sent to the server. It is stored in this browser only.</p>
+  <p class="warning"><strong>You are responsible for storing your token.</strong> AFWD does not store the token and cannot recover it. Clearing your browser data removes it. If you lose it, create a new token and replace the DNS record.</p>
+  <p><button type="button" id="generate">Create token</button> <span id="generated"></span></p>
+  <div id="setup" hidden>
+    <p>Token</p>
+    <code id="new-token"></code>
+    <p><button type="button" data-copy="new-token">Copy token</button></p>
+
+    <h2>2. Add the DNS record</h2>
+    <p>Name</p>
+    <code id="record-name"></code>
+    <p><button type="button" data-copy="record-name">Copy name</button></p>
+    <p>Type: <strong>TXT</strong></p>
+    <p>Value</p>
+    <code id="record-value"></code>
+    <p><button type="button" data-copy="record-value">Copy value</button></p>
+    <p>DNS changes can take a while to become visible.</p>
+  </div>
+
+  <h2>View statistics</h2>
   <form id="view">
-    <p><label>Domain <input id="domain" autocomplete="username" placeholder="example.com" required></label></p>
-    <h2>1. Create a token</h2>
-    <p>The token is created in your browser and is never sent to the server. Keep it secret.</p>
-    <button type="button" id="generate">Create token</button>
-    <pre id="setup"></pre>
-    <h2>2. View statistics</h2>
-    <p><label>Token <input id="token" type="password" autocomplete="current-password" required></label></p>
-    <p><button type="button" id="copy">Copy token</button> <span id="copied"></span></p>
-    <p>Your browser can save the domain and token in its password manager.</p>
+    <p><label>Token <input id="token" type="password" autocomplete="off" required></label></p>
+    <p id="token-source"></p>
     <button>Show</button>
   </form>
   <div id="result"></div>
   <script>
+    const $ = (id) => document.getElementById(id);
+    // Storage can be unavailable (private windows, blocked site data); the page still works without it.
+    const load = (key) => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
+    const save = (key, value) => { try { localStorage.setItem(key, value); return true; } catch { return false; } };
+    const domain = () => $('domain').value.trim().replace(/\.$/, '').toLowerCase();
+    const tokenKey = (name) => `afwd-stats-token:${name}`;
     const hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
       .map((b) => b.toString(16).padStart(2, '0')).join('');
-    document.getElementById('generate').onclick = async () => {
-      const domain = document.getElementById('domain').value.trim().replace(/\.$/, '') || 'example.com';
+
+    const loadToken = () => {
+      const token = domain() ? load(tokenKey(domain())) : '';
+      $('token').value = token;
+      $('token-source').textContent = token
+        ? 'Token loaded from this browser.'
+        : 'No token stored in this browser for this domain. Create one above or paste an existing token.';
+    };
+    $('domain').value = load('afwd-stats-domain');
+    $('domain').oninput = () => { $('setup').hidden = true; $('generated').textContent = ''; loadToken(); };
+    $('token').oninput = () => { $('token-source').textContent = ''; };
+    loadToken();
+
+    $('generate').onclick = async () => {
+      const name = domain();
+      if (!name) {
+        $('domain').reportValidity();
+        return;
+      }
+      const replaced = load(tokenKey(name));
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      document.getElementById('setup').textContent =
-        `Token: ${token}\n\nAdd this DNS record:\n_afwd-stats.${domain}. 3600 TXT "v=afwdstats1 h=${await hex(token)}"`;
-      document.getElementById('token').value = token;
+      $('new-token').textContent = token;
+      $('record-name').textContent = `_afwd-stats.${name}`;
+      $('record-value').textContent = `v=afwdstats1 h=${await hex(token)}`;
+      $('setup').hidden = false;
+      const stored = save(tokenKey(name), token) && save('afwd-stats-domain', name);
+      $('generated').textContent = !stored
+        ? 'Could not store the token in this browser. Copy it now.'
+        : replaced
+          ? 'Stored in this browser. This replaced the previous token; its DNS record keeps working until you delete it.'
+          : 'Stored in this browser.';
+      loadToken();
+      if (!stored) $('token').value = token;
     };
-    document.getElementById('copy').onclick = async () => {
-      const status = document.getElementById('copied');
-      try {
-        await navigator.clipboard.writeText(document.getElementById('token').value);
-        status.textContent = 'Copied.';
-      } catch {
-        status.textContent = 'Copy failed. Select the token above and copy it manually.';
-      }
-    };
+
+    for (const button of document.querySelectorAll('[data-copy]')) {
+      button.onclick = async () => {
+        const label = button.textContent;
+        try {
+          await navigator.clipboard.writeText($(button.dataset.copy).textContent);
+          button.textContent = 'Copied';
+        } catch {
+          button.textContent = 'Copy failed, select the text manually';
+        }
+        setTimeout(() => { button.textContent = label; }, 2000);
+      };
+    }
+
     const sum = (pairs) => [...pairs.reduce((map, [key, n]) => map.set(key, (map.get(key) || 0) + n), new Map())];
     const section = (title, rows) => {
       const heading = document.createElement('h3');
@@ -288,19 +341,37 @@ const STATS_PAGE: &str = r#"<!doctype html>
         bar.style.width = `${(100 * n) / max}%`;
         row.insertCell().append(bar);
       }
-      document.getElementById('result').append(heading, rows.length ? table : 'No data yet.');
+      $('result').append(heading, rows.length ? table : 'No data yet.');
     };
-    document.getElementById('view').onsubmit = async (event) => {
+    $('view').onsubmit = async (event) => {
       event.preventDefault();
-      const domain = document.getElementById('domain').value.trim();
-      const response = await fetch(`/api/stats/${encodeURIComponent(domain)}`, {
-        headers: { Authorization: `Bearer ${document.getElementById('token').value.trim()}` },
-      });
-      const result = document.getElementById('result');
+      const name = domain();
+      const token = $('token').value.trim();
+      const result = $('result');
+      if (!name) {
+        $('domain').reportValidity();
+        return;
+      }
+      result.textContent = 'Loading...';
+      let response;
+      try {
+        response = await fetch(`/api/stats/${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } });
+      } catch (error) {
+        result.textContent = `Could not load statistics: ${error.message}`;
+        return;
+      }
+      if (response.status === 401) {
+        result.textContent = 'The token does not match a DNS record for this domain. Check the record, or wait for DNS to update.';
+        return;
+      }
       if (!response.ok) {
         result.textContent = `Error ${response.status}`;
         return;
       }
+      // A pasted token that works is remembered for next time.
+      save(tokenKey(name), token);
+      save('afwd-stats-domain', name);
+      loadToken();
       const data = await response.json();
       result.replaceChildren();
       section('Hits per day (UTC)', sum(data.hits.map(([hour, , n]) => [new Date(hour * 1000).toISOString().slice(0, 10), n])));

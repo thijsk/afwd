@@ -153,7 +153,7 @@ v=afwd1 type=perm append=y dest=https://example.net/?domain=</pre>
     <li>Open the <a href="/stats">statistics page</a> and click <em>Create token</em>. Your browser creates the token. Keep the token secret.</li>
     <li>Add the TXT record that the page shows. It contains the SHA-256 hash of the token, not the token:
       <pre>_afwd-stats.example.com. 3600 TXT "v=afwdstats1 h=&lt;sha256 hex of token&gt;"</pre></li>
-    <li>Enter your domain and the token on the statistics page.</li>
+    <li>Click <em>Show</em>. The page stores the token in your browser, so next time you only enter your domain.</li>
   </ol>
   <p>To give access to more tokens, add more <code>h=</code> records. To remove access, delete the record.</p>
     <p>This service is based on the specifications defined by <a href="https://afwd.uk/">afwd.uk</a>.</p>
