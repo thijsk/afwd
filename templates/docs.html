@@ -6,11 +6,45 @@
   <p class="lead">Everything AFWD does is configured in your DNS. The <a href="/#setup">setup tool</a> builds the records for you; this page explains every option.</p>
 
   <h2>DNS setup</h2>
-  <p>Point your domain at this service with A and/or AAAA records. For a subdomain, use a CNAME pointing to the configured domain.</p>
-  <p>Replace <code>example.com</code> with your domain. Add these A and AAAA records at your DNS provider:</p>
-  <pre>{{ dns_records|join("\n") }}</pre>
-  <p>To forward all subdomains, add this wildcard CNAME record:</p>
+  <p>You add two things at your DNS provider: a record that points your domain at AFWD, and a TXT record that says where to forward to. Replace <code>example.com</code> with your domain.</p>
+{%- if let Some(target) = target_host %}
+
+  <h3>Subdomain: CNAME</h3>
+  <p>For a subdomain such as <code>go.example.com</code>, add a CNAME to <code>{{ target }}</code>. A name with a CNAME cannot have other records, so the TXT record goes on <code>_afwd.go.example.com</code>:</p>
+  <pre>go.example.com.       14400 CNAME {{ target }}.
+_afwd.go.example.com. 14400 TXT   "v=afwd1 dest=https://www.example.net/"</pre>
+
+  <h3>Root domain: ALIAS, ANAME or CNAME flattening</h3>
+  <p>A root domain such as <code>example.com</code> cannot have a normal CNAME. Many DNS providers offer a record that works like one: ALIAS, ANAME, or a CNAME on the root domain that they flatten (Cloudflare does this automatically). Point it at <code>{{ target }}</code>:</p>
+  <pre>example.com.       14400 ALIAS {{ target }}.
+_afwd.example.com. 14400 TXT   "v=afwd1 dest=https://www.example.net/"</pre>
+  <p>With a CNAME or ALIAS, your domain follows AFWD automatically. If AFWD moves to new addresses, you don't have to change anything.</p>
+{%- endif %}
+
+  <h3>{% if target_host.is_some() %}Any DNS provider: {% endif %}A and AAAA records</h3>
+{%- if address_records.is_empty() %}
+  <p>Set <code>AFWD_PUBLIC_IPV4</code> or <code>AFWD_PUBLIC_IPV6</code> to show the addresses here.</p>
+{%- else %}
+  <p>{% if target_host.is_some() %}If your DNS provider does not support ALIAS, ANAME or CNAME flattening, add{% else %}Add{% endif %} these A and AAAA records with the TXT record on the domain itself:</p>
+  <pre>{{ address_records|join("\n") }}
+example.com. 14400 TXT   "v=afwd1 dest=https://www.example.net/"</pre>
+{%- if target_host.is_some() %}
+  <p>These addresses are fixed in your DNS. If AFWD ever moves to new addresses, you have to update these records.</p>
+{%- endif %}
+{%- endif %}
+
+  <h3>All subdomains</h3>
+  <p>To forward all subdomains with the same configuration, add this wildcard CNAME record:</p>
   <pre>*.example.com. 14400 CNAME example.com.</pre>
+
+  <h3>Where AFWD looks for the TXT record</h3>
+  <p>For a request to <code>www.example.com</code>, AFWD uses the first <code>v=afwd1</code> TXT record it finds at:</p>
+  <ol>
+    <li><code>_afwd.www.example.com</code></li>
+    <li><code>www.example.com</code> itself, as in the afwd1 specification. If the name is a CNAME, this is the record of the name it points to.</li>
+    <li>If <code>www.example.com</code> is a CNAME to <code>example.com</code>: <code>_afwd.example.com</code>, then <code>example.com</code>.</li>
+  </ol>
+  <p>The <code>_afwd.</code> name is an AFWD extension of the afwd1 specification. It is what makes CNAME setups possible.</p>
   <p>SSL/TLS certificates are provided automatically for HTTPS. Certificates renew automatically while your DNS records remain active.</p>
 
   <h2>TXT options</h2>

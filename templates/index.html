@@ -8,7 +8,11 @@
         <span>v=afwd1 dest=https://www.example.net/ preserve=y type=308</span>
         <span>example.com. 14400 A {{ self.example_address() }} TXT CNAME AAAA</span>
         <span>type=perm append=y dest=https://example.org/?domain= cert=no</span>
+{%- if target.is_empty() %}
         <span>*.example.com. 14400 CNAME example.com. v=afwd1 preserve=y</span>
+{%- else %}
+        <span>go.example.com. CNAME {{ target }}. _afwd.go.example.com. TXT v=afwd1</span>
+{%- endif %}
         <span>301 302 307 308 perm temp v=afwd1 dest=https://example.net/</span>
         <span>_afwd-stats.example.com. TXT v=afwdstats1 h=9f86d081884c7d65</span>
         <span>v=afwd1 dest=https://www.example.net/ preserve=y type=308</span>
@@ -54,8 +58,13 @@
           <li>
             <span class="step-number">1</span>
             <h3>Point your domain here</h3>
+{%- if target.is_empty() %}
             <p>Add A and AAAA records, or a CNAME for a subdomain.</p>
             <code>example.com.&nbsp; A&nbsp; {{ self.example_address() }}</code>
+{%- else %}
+            <p>Add a CNAME, or an ALIAS for a root domain. Or use A and AAAA records.</p>
+            <code>go.example.com.&nbsp; CNAME&nbsp; {{ target }}</code>
+{%- endif %}
           </li>
           <li>
             <span class="step-number">2</span>
@@ -78,7 +87,7 @@
         <h2 class="section-title">Set up your domain</h2>
         <p class="section-lead">Fill in your domain and destination to get the exact records for your DNS provider. Then check what AFWD sees.</p>
         <div class="card">
-          <form id="builder" data-ipv4="{{ ipv4 }}" data-ipv6="{{ ipv6 }}" novalidate>
+          <form id="builder" data-ipv4="{{ ipv4 }}" data-ipv6="{{ ipv6 }}" data-target="{{ target }}" novalidate>
             <div class="fields">
               <label>Your domain <input id="b-domain" placeholder="example.com" autocomplete="off" spellcheck="false"></label>
               <label>Forward to <input id="b-dest" placeholder="https://www.example.net/" autocomplete="off" spellcheck="false"></label>
@@ -90,6 +99,16 @@
                 <option value="307">307 Temporary, keep method</option>
                 <option value="308">308 Permanent, keep method</option>
               </select></label>
+{%- if !target.is_empty() %}
+            <label class="select">Point your domain with
+              <select id="b-point">
+                <option value="cname">CNAME (subdomain)</option>
+                <option value="alias">ALIAS or flattened CNAME (root domain)</option>
+{%- if !ipv4.is_empty() || !ipv6.is_empty() %}
+                <option value="a">A and AAAA (any provider)</option>
+{%- endif %}
+              </select></label>
+{%- endif %}
             <p class="options">
               <label><input type="checkbox" id="b-preserve"> Keep the path and query string</label>
               <label><input type="checkbox" id="b-append"> Append the domain to the destination</label>
@@ -102,9 +121,7 @@
               <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
               <tbody id="b-records"></tbody>
             </table>
-{%- if let Some(help_domain) = help_domain %}
-            <p class="hint">For a subdomain such as <code>go.example.com</code> you can use a CNAME to <code>{{ help_domain }}</code> instead of the A and AAAA records.</p>
-{%- endif %}
+            <p class="hint" id="b-hint" hidden></p>
             <p class="preview">With this record, <code id="b-from"></code> redirects to <code id="b-to"></code>.</p>
           </div>
           <div class="check">
@@ -151,7 +168,7 @@
           <li>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H6a2 2 0 0 0-2 2v3m16 0V6a2 2 0 0 0-2-2h-3M4 15v3a2 2 0 0 0 2 2h3m6 0h3a2 2 0 0 0 2-2v-3"/><path d="M9 12h6"/></svg>
             <h3>Open format</h3>
-            <p>Records follow the open <a href="https://afwd.uk/">afwd1 specification</a>. Readable, documented, and yours.</p>
+            <p>Records build on the open <a href="https://afwd.uk/">afwd1 specification</a>. Readable, documented, and yours.</p>
           </li>
         </ul>
         <p class="band-cta"><a class="btn btn-primary" href="#setup">Set up your domain</a> <a class="btn btn-ghost" href="/docs">Read the docs</a></p>

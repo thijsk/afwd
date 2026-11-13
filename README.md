@@ -10,17 +10,27 @@ The service reads `v=afwd1` TXT records and returns HTTP redirects. HTTPS certif
 
 The Docker image runs Rust and Caddy together. Rust listens privately on port `9000`. Caddy provides public HTTP and HTTPS access on ports `80` and `443`. A record with `cert=no` returns `403` and does not receive a certificate.
 
-The forwarding domain must point its A/AAAA records at the public service addresses. Subdomains can use CNAME records, and each forwarding configuration is a TXT record beginning with:
+A forwarding domain points at the service in one of three ways:
+
+- A subdomain uses a CNAME to the target host (`AFWD_TARGET_HOST`, default `fwd.<help domain>`).
+- A root domain uses an ALIAS, ANAME or flattened CNAME to the target host, if its DNS provider supports one.
+- Any domain can use A/AAAA records with the public service addresses.
+
+With a CNAME or ALIAS, the service can move to new addresses without domain owners changing their DNS: only the target host's A/AAAA records change. The target host must not have a `v=afwd1` TXT record of its own, or every CNAME to it without a configuration would use that record. Requests to the target host itself redirect to the help domain. Set `AFWD_TARGET_HOST` to an empty value to offer only A/AAAA records.
+
+Each forwarding configuration is a TXT record beginning with:
 
 ```text
 v=afwd1 dest=https://example.net/ preserve=y type=302
 ```
 
+The service uses the first `v=afwd1` record it finds at `_afwd.<host>`, at `<host>` itself (as in the afwd.uk specification, following CNAMEs), and then at `_afwd.<target>` and `<target>` for the target of a CNAME at `<host>`. The `_afwd.` name is our extension: a name with a CNAME cannot have its own TXT record, so `go.example.com CNAME fwd.afwd.nl` is configured at `_afwd.go.example.com`. If the `_afwd.` lookup fails but the record on the name is found, that record is used, so existing domains keep working.
+
 With `preserve=y` the request path and query string are added to the destination, so `/blog/post?x=1` goes to `https://example.net/blog/post?x=1`. Without it, every request goes to the destination as written.
 
 Set `AFWD_PUBLIC_IPV4` and `AFWD_PUBLIC_IPV6` to comma-separated public addresses. The help page uses these values in its DNS examples. Set `AFWD_HELP_DOMAIN` to change the domain that shows the help page; it defaults to `afwd.nl`.
 
-The help domain serves a landing page at `/` and the full documentation at `/docs`. The landing page shows live totals from `GET /api/summary` (requests and domains over the last 90 days, excluding the help domain) and has a record builder and a domain checker. The checker calls `GET https://<help domain>/api/check/example.com`, which reports the domain's A/AAAA addresses (and whether they match `AFWD_PUBLIC_IPV4`/`AFWD_PUBLIC_IPV6`), its `v=afwd1` record, any error in that record, and the resulting redirect. When a domain points at the service without a usable record, the 404 page shows the reason and links to the checker.
+The help domain serves a landing page at `/` and the full documentation at `/docs`. The landing page shows live totals from `GET /api/summary` (requests and domains over the last 90 days, excluding the help domain) and has a record builder and a domain checker. The checker calls `GET https://<help domain>/api/check/example.com`, which reports the domain's A/AAAA addresses (and whether they match `AFWD_PUBLIC_IPV4`/`AFWD_PUBLIC_IPV6` or the target host's current addresses), its CNAME target, its `v=afwd1` record and the name it was found at, any error in that record, and the resulting redirect. When a domain points at the service without a usable record, the 404 page shows the reason and links to the checker.
 
 The HTML pages are askama templates in `templates/`. They are compiled into the binary.
 

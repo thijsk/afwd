@@ -76,7 +76,7 @@ async fn cert_check(
     if is_ip_address(domain) {
         return StatusCode::FORBIDDEN;
     }
-    if state.docs.is_help_domain(domain) {
+    if state.docs.is_help_domain(domain) || state.docs.is_target_host(domain) {
         return StatusCode::OK;
     }
 
@@ -173,6 +173,13 @@ async fn forward(
             return stats_api(&state, &headers, domain).await;
         }
     }
+    if !state.docs.is_help_domain(&host) && state.docs.is_target_host(&host) {
+        // Domains point at the target host with a CNAME or ALIAS; visitors who open it
+        // directly are sent to the help site.
+        if let Some(help_url) = state.docs.help_url() {
+            return (StatusCode::FOUND, [(LOCATION, help_url)]).into_response();
+        }
+    }
 
     match state.dns.resolve(&host).await {
         Ok(config) => {
@@ -241,7 +248,7 @@ async fn check_api(state: &AppState, domain: &str) -> Response {
             .into_response();
     };
     let public = state.docs.public_addresses();
-    let lookup = check(&state.dns, &public, domain);
+    let lookup = check(&state.dns, &public, state.docs.target_host(), domain);
     match tokio::time::timeout(CHECK_TIMEOUT, lookup).await {
         Ok(Ok(result)) => ([(CACHE_CONTROL, "no-store")], Json(result)).into_response(),
         Ok(Err(error)) => {

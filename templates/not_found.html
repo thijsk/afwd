@@ -20,7 +20,7 @@
     <p><strong>{{ domain }}</strong> points at AFWD and has an AFWD TXT record, but the record is invalid:</p>
     <p class="value">{{ reason }}</p>
 {%- else %}
-    <p><strong>{{ domain }}</strong> points at AFWD, but it has no <code>v=afwd1</code> TXT record, so there is nowhere to forward to.</p>
+    <p><strong>{{ domain }}</strong> points at AFWD, but it has no <code>v=afwd1</code> TXT record, so there is nowhere to forward to. Add one at <code>_afwd.{{ domain }}</code>.</p>
 {%- endif %}
 {%- if let Some(help_url) = help_url %}
     <p class="actions"><a class="btn btn-primary" href="{{ help_url }}#check={{ domain|urlencode }}">Check this domain</a> <a class="btn btn-ghost" href="{{ help_url }}docs">Read the docs</a></p>

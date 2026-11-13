@@ -473,3 +473,59 @@ async fn not_found_page_links_to_the_domain_check() {
     assert!(body.contains("<strong>customer.invalid</strong>"));
     assert!(body.contains("https://afwd.nl/#check=customer.invalid"));
 }
+
+#[tokio::test]
+async fn target_host_redirects_to_the_help_site_and_gets_a_certificate() {
+    let app = router_with_docs(
+        DnsConfig::new(Duration::from_secs(60)),
+        DocsConfig::with_help_domain("afwd.nl").with_target_host("fwd.afwd.nl"),
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/anything")
+                .header("host", "FWD.afwd.nl")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()["location"], "https://afwd.nl/");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/internal/cert-check?domain=fwd.afwd.nl")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn domain_check_reports_cname_and_record_name() {
+    let app = router_with_docs(
+        DnsConfig::new(Duration::from_secs(60)),
+        DocsConfig::with_help_domain("afwd.nl").with_target_host("fwd.afwd.nl"),
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/check/customer.invalid")
+                .header("host", "afwd.nl")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(body["cname"].is_null());
+    assert!(body["record_name"].is_null());
+}

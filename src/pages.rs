@@ -15,7 +15,8 @@ pub struct Landing {
     /// Comma-separated, for the record builder.
     pub ipv4: String,
     pub ipv6: String,
-    pub help_domain: Option<String>,
+    /// The hostname for CNAME and ALIAS records; empty when there is none.
+    pub target: String,
 }
 
 impl Landing {
@@ -36,7 +37,7 @@ impl Landing {
                     .map(ToString::to_string)
                     .collect(),
             ),
-            help_domain: config.help_domain().map(str::to_owned),
+            target: config.target_host().unwrap_or_default().to_owned(),
         }
     }
 
@@ -53,13 +54,16 @@ impl Landing {
 #[derive(Template)]
 #[template(path = "docs.html")]
 pub struct Docs {
-    pub dns_records: Vec<String>,
+    /// Example A and AAAA records.
+    pub address_records: Vec<String>,
+    pub target_host: Option<String>,
 }
 
 impl Docs {
     pub fn new(config: &DocsConfig) -> Self {
         Self {
-            dns_records: config.dns_records(),
+            address_records: config.address_records(),
+            target_host: config.target_host().map(str::to_owned),
         }
     }
 }
@@ -112,11 +116,33 @@ mod tests {
     #[test]
     fn docs_page_lists_records() {
         let page = Docs {
-            dns_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
+            address_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
+            target_host: Some("fwd.afwd.nl".to_owned()),
         }
         .render()
         .unwrap();
         assert!(page.contains("example.com. 14400 A     192.0.2.1"));
+        assert!(page.contains("go.example.com.       14400 CNAME fwd.afwd.nl."));
+        assert!(page.contains("example.com.       14400 ALIAS fwd.afwd.nl."));
+        assert!(page.contains("_afwd.go.example.com. 14400 TXT"));
+
+        // Without a target host only the A and AAAA records are offered.
+        let page = Docs {
+            address_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
+            target_host: None,
+        }
+        .render()
+        .unwrap();
+        assert!(page.contains("example.com. 14400 A     192.0.2.1"));
+        assert!(!page.contains("ALIAS"));
+
+        let page = Docs {
+            address_records: Vec::new(),
+            target_host: None,
+        }
+        .render()
+        .unwrap();
+        assert!(page.contains("Set <code>AFWD_PUBLIC_IPV4</code>"));
     }
 
     #[test]
@@ -124,12 +150,37 @@ mod tests {
         let page = Landing {
             ipv4: "198.51.100.7,198.51.100.8".to_owned(),
             ipv6: String::new(),
-            help_domain: Some("afwd.nl".to_owned()),
+            target: "fwd.afwd.nl".to_owned(),
         };
         assert_eq!(page.example_address(), "198.51.100.7");
-        assert!(page
-            .render()
-            .unwrap()
-            .contains("data-ipv4=\"198.51.100.7,198.51.100.8\""));
+        let html = page.render().unwrap();
+        assert!(html.contains("data-ipv4=\"198.51.100.7,198.51.100.8\""));
+        assert!(html.contains("data-target=\"fwd.afwd.nl\""));
+        assert!(html.contains("<option value=\"alias\">"));
+        assert!(html.contains("<option value=\"a\">"));
+    }
+
+    #[test]
+    fn landing_page_without_target_offers_only_addresses() {
+        let html = Landing {
+            ipv4: "198.51.100.7".to_owned(),
+            ipv6: String::new(),
+            target: String::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(!html.contains("id=\"b-point\""));
+        assert!(html.contains("example.com.&nbsp; A&nbsp; 198.51.100.7"));
+
+        // Without addresses, the A option is left out.
+        let html = Landing {
+            ipv4: String::new(),
+            ipv6: String::new(),
+            target: "fwd.afwd.nl".to_owned(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("id=\"b-point\""));
+        assert!(!html.contains("<option value=\"a\">"));
     }
 }

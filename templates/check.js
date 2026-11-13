@@ -5,6 +5,11 @@ const form = $('builder');
 const list = (value) => value.split(',').filter(Boolean);
 const ipv4 = list(form.dataset.ipv4);
 const ipv6 = list(form.dataset.ipv6);
+const target = form.dataset.target;
+const point = $('b-point');
+// Until the visitor picks one, the record type follows the domain: a name with two
+// labels is probably a root domain. A guess only; the hints explain the choice.
+let pointChosen = false;
 const SAMPLE = '/blog/post?x=1';
 
 const domain = () => $('b-domain').value.trim().replace(/\.$/, '').toLowerCase();
@@ -72,11 +77,25 @@ const build = () => {
   const type = $('b-type').value;
   const txt = ['v=afwd1', preserve && 'preserve=y', append && 'append=y', type !== '302' && `type=${type}`, `dest=${dest.url.href}`]
     .filter(Boolean).join(' ');
-  const records = [
-    ...ipv4.map((address) => [name, 'A', address]),
-    ...ipv6.map((address) => [name, 'AAAA', address]),
-    [name, 'TXT', txt],
-  ];
+  if (point && !pointChosen) point.value = name.split('.').length > 2 ? 'cname' : 'alias';
+  const mode = point ? point.value : 'a';
+  const records = mode === 'a'
+    ? [
+      ...ipv4.map((address) => [name, 'A', address]),
+      ...ipv6.map((address) => [name, 'AAAA', address]),
+      [name, 'TXT', txt],
+    ]
+    : [
+      [name, mode === 'cname' ? 'CNAME' : 'ALIAS', target],
+      [`_afwd.${name}`, 'TXT', txt],
+    ];
+  const hints = {
+    cname: `Use a CNAME only for a subdomain such as go.example.com; a root domain cannot have one. The TXT record goes on _afwd.${name} because a name with a CNAME cannot have other records.`,
+    alias: `Your DNS provider may call this ALIAS or ANAME, or accept a CNAME on the root domain and flatten it (Cloudflare does this automatically). If it supports none of these, choose A and AAAA records.`,
+    a: target ? 'These addresses are fixed in your DNS. If AFWD ever moves to new addresses, you have to update these records. A CNAME or ALIAS avoids that.' : '',
+  };
+  $('b-hint').textContent = hints[mode];
+  $('b-hint').hidden = !hints[mode];
   if ($('b-wildcard').checked) records.push([`*.${name}`, 'CNAME', name]);
 
   const body = $('b-records');
@@ -120,24 +139,34 @@ const check = async () => {
     const data = await response.json();
 
     const foreign = data.addresses.filter(([, ours]) => ours === false).map(([address]) => address);
+    const via = data.cname ? ` (through a CNAME to ${data.cname})` : '';
+    const shown = data.addresses.map(([address]) => address).join(', ') + via;
     if (!data.addresses.length) {
-      result('bad', 'The domain does not point at AFWD', 'No A or AAAA records were found. Add the records above.');
+      result('bad', 'The domain does not point at AFWD', data.cname
+        ? `It is a CNAME to ${data.cname}, which has no addresses. Point it at the target above.`
+        : 'No A, AAAA, CNAME or ALIAS records were found. Add the records above.');
     } else if (foreign.length === data.addresses.length) {
-      result('bad', 'The domain does not point at AFWD', `It points at ${foreign.join(', ')}. Replace these records with the A and AAAA records above.`);
+      result('bad', 'The domain does not point at AFWD', `It points at ${foreign.join(', ')}${via}. Replace these records with the records above.`);
     } else if (foreign.length) {
       result('bad', 'Some addresses do not belong to AFWD', `Remove these records: ${foreign.join(', ')}`);
     } else if (data.addresses.some(([, ours]) => ours === null)) {
-      result('unknown', 'The domain has addresses', data.addresses.map(([address]) => address).join(', '));
+      result('unknown', 'The domain has addresses', shown);
     } else {
-      result('good', 'The domain points at AFWD', data.addresses.map(([address]) => address).join(', '));
+      result('good', 'The domain points at AFWD', shown);
+      // A flattened ALIAS looks the same as typed-in A records, so this is only a tip.
+      if (!data.cname && target) {
+        result('unknown', 'Tip: use a CNAME or ALIAS', `If you entered these addresses as A and AAAA records, a CNAME or ALIAS to ${target} keeps working when AFWD moves to new addresses. Skip this if you already use an ALIAS or a flattened CNAME.`);
+      }
     }
 
     if (!data.record) {
-      result('bad', 'No AFWD TXT record', `Add a TXT record for ${data.domain} that starts with v=afwd1.`);
+      result('bad', 'No AFWD TXT record', data.cname
+        ? `Add a TXT record for _afwd.${data.domain} that starts with v=afwd1. ${data.domain} is a CNAME, so it cannot have a TXT record of its own.`
+        : `Add a TXT record for _afwd.${data.domain} or ${data.domain} that starts with v=afwd1.`);
     } else if (data.error) {
-      result('bad', 'The AFWD TXT record is invalid', `${data.error}\n${data.record}`);
+      result('bad', 'The AFWD TXT record is invalid', `${data.error}\n${data.record_name}: ${data.record}`);
     } else {
-      result('good', 'The AFWD TXT record is valid', data.record);
+      result('good', 'The AFWD TXT record is valid', `${data.record_name}: ${data.record}`);
     }
 
     if (data.redirect) {
@@ -155,6 +184,7 @@ const check = async () => {
   }
 };
 
+if (point) point.addEventListener('input', () => { pointChosen = true; });
 form.oninput = build;
 form.onsubmit = (event) => event.preventDefault();
 $('check').onclick = check;
