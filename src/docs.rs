@@ -89,7 +89,8 @@ impl DocsConfig {
         if records.is_empty() {
             records.push("Set AFWD_PUBLIC_IPV4 or AFWD_PUBLIC_IPV6".to_owned());
         }
-        records.push("example.com. 14400 TXT   \"v=afwd1 dest=https://www.example.net/\"".to_owned());
+        records
+            .push("example.com. 14400 TXT   \"v=afwd1 dest=https://www.example.net/\"".to_owned());
         records
     }
 }
@@ -110,8 +111,10 @@ mod tests {
             help_domain: Some("afwd.nl".to_owned()),
         };
 
-        let page = config.dns_records().join("
-");
+        let page = config.dns_records().join(
+            "
+",
+        );
 
         assert!(page.contains("example.com. 14400 A     192.0.2.1"));
         assert!(page.contains("example.com. 14400 A     192.0.2.2"));

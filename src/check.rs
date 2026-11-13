@@ -54,7 +54,12 @@ pub async fn check(
     let (addresses, record) = tokio::join!(dns.addresses(&domain), dns.find_record(&domain));
     let addresses = addresses?
         .into_iter()
-        .map(|address| (address, (!public.is_empty()).then(|| public.contains(&address))))
+        .map(|address| {
+            (
+                address,
+                (!public.is_empty()).then(|| public.contains(&address)),
+            )
+        })
         .collect();
     let record = record?;
 
@@ -71,13 +76,12 @@ pub async fn check(
         Some(Err(error)) => result.error = Some(error.to_string()),
         Some(Ok(config)) => {
             result.certificate = Some(config.request_certificate);
-            result.redirect = redirect_url(&config, &result.domain, SAMPLE_PATH).map(|location| {
-                Redirect {
+            result.redirect =
+                redirect_url(&config, &result.domain, SAMPLE_PATH).map(|location| Redirect {
                     from: format!("http://{}{SAMPLE_PATH}", result.domain),
                     location,
                     status: config.status,
-                }
-            });
+                });
         }
     }
     Ok(result)
@@ -89,9 +93,23 @@ mod tests {
 
     #[test]
     fn normalizes_and_validates_domains() {
-        assert_eq!(normalize_domain(" Example.COM. ").as_deref(), Some("example.com"));
-        assert_eq!(normalize_domain("_afwd-stats.example.com").as_deref(), Some("_afwd-stats.example.com"));
-        for invalid in ["", "localhost", "127.0.0.1", "a..b", "exa mple.com", "<x>.com", "::1"] {
+        assert_eq!(
+            normalize_domain(" Example.COM. ").as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            normalize_domain("_afwd-stats.example.com").as_deref(),
+            Some("_afwd-stats.example.com")
+        );
+        for invalid in [
+            "",
+            "localhost",
+            "127.0.0.1",
+            "a..b",
+            "exa mple.com",
+            "<x>.com",
+            "::1",
+        ] {
             assert_eq!(normalize_domain(invalid), None, "{invalid}");
         }
     }

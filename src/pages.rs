@@ -22,15 +22,31 @@ impl Landing {
     pub fn new(config: &DocsConfig) -> Self {
         let join = |addresses: Vec<String>| addresses.join(",");
         Self {
-            ipv4: join(config.public_ipv4().iter().map(ToString::to_string).collect()),
-            ipv6: join(config.public_ipv6().iter().map(ToString::to_string).collect()),
+            ipv4: join(
+                config
+                    .public_ipv4()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            ),
+            ipv6: join(
+                config
+                    .public_ipv6()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            ),
             help_domain: config.help_domain().map(str::to_owned),
         }
     }
 
     /// The address shown in the "how it works" example.
     fn example_address(&self) -> &str {
-        self.ipv4.split(',').next().filter(|address| !address.is_empty()).unwrap_or("192.0.2.1")
+        self.ipv4
+            .split(',')
+            .next()
+            .filter(|address| !address.is_empty())
+            .unwrap_or("192.0.2.1")
     }
 }
 
@@ -111,6 +127,9 @@ mod tests {
             help_domain: Some("afwd.nl".to_owned()),
         };
         assert_eq!(page.example_address(), "198.51.100.7");
-        assert!(page.render().unwrap().contains("data-ipv4=\"198.51.100.7,198.51.100.8\""));
+        assert!(page
+            .render()
+            .unwrap()
+            .contains("data-ipv4=\"198.51.100.7,198.51.100.8\""));
     }
 }

@@ -12,8 +12,8 @@ use axum::{
     Json, Router,
 };
 use sha2::{Digest, Sha256};
-use tokio::sync::Semaphore;
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
+use tokio::sync::Semaphore;
 
 use crate::{
     check::{check, normalize_domain},
@@ -144,7 +144,9 @@ async fn forward(
             let excluded_host = state.docs.help_domain().unwrap_or_default();
             return match stats.summary(excluded_host).await {
                 // Shown on the landing page, so browsers may reuse it for a few minutes.
-                Ok(summary) => ([(CACHE_CONTROL, "public, max-age=300")], Json(summary)).into_response(),
+                Ok(summary) => {
+                    ([(CACHE_CONTROL, "public, max-age=300")], Json(summary)).into_response()
+                }
                 Err(error) => {
                     tracing::warn!(%error, "summary query failed");
                     StatusCode::INTERNAL_SERVER_ERROR.into_response()

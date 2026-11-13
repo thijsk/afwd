@@ -40,7 +40,10 @@ impl DnsConfig {
     }
 
     pub async fn resolve(&self, host: &str) -> Result<ForwardingConfig, ResolveError> {
-        let text = self.find_record(host).await?.ok_or(ResolveError::NotFound)?;
+        let text = self
+            .find_record(host)
+            .await?
+            .ok_or(ResolveError::NotFound)?;
         Ok(parse_txt_record(&text)?)
     }
 
