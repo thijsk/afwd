@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone, Default)]
 pub struct DocsConfig {
@@ -59,6 +59,20 @@ where
 }
 
 impl DocsConfig {
+    pub fn public_ipv4(&self) -> &[Ipv4Addr] {
+        &self.public_ipv4
+    }
+
+    pub fn public_ipv6(&self) -> &[Ipv6Addr] {
+        &self.public_ipv6
+    }
+
+    pub fn public_addresses(&self) -> Vec<IpAddr> {
+        let v4 = self.public_ipv4.iter().copied().map(IpAddr::V4);
+        let v6 = self.public_ipv6.iter().copied().map(IpAddr::V6);
+        v4.chain(v6).collect()
+    }
+
     /// Example A/AAAA/TXT records for the help page, using the configured public addresses.
     pub fn dns_records(&self) -> Vec<String> {
         let mut records = self

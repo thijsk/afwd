@@ -10,9 +10,14 @@
 </head>
 <body>
   <h1>Forwarding not configured</h1>
-  <p>Forwarding configuration not found.</p>
+{%- if let Some(reason) = reason %}
+  <p><strong>{{ domain }}</strong> points at AFWD and has an AFWD TXT record, but the record is invalid:</p>
+  <p class="value">{{ reason }}</p>
+{%- else %}
+  <p><strong>{{ domain }}</strong> points at AFWD, but it has no <code>v=afwd1</code> TXT record, so there is nowhere to forward to.</p>
+{%- endif %}
 {%- if let Some(help_url) = help_url %}
-  <p>Read the <a href="{{ help_url }}">AFWD help page</a>.</p>
+  <p><a href="{{ help_url }}#check={{ domain|urlencode }}">Check this domain</a> or read the <a href="{{ help_url }}">AFWD help page</a>.</p>
 {%- endif %}
 </body>
 </html>

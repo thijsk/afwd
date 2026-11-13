@@ -20,6 +20,10 @@ With `preserve=y` the request path and query string are added to the destination
 
 Set `AFWD_PUBLIC_IPV4` and `AFWD_PUBLIC_IPV6` to comma-separated public addresses. The help page uses these values in its DNS examples. Set `AFWD_HELP_DOMAIN` to change the domain that shows the help page; it defaults to `afwd.nl`.
 
+The help page has a record builder and a domain checker. The checker calls `GET https://<help domain>/api/check/example.com`, which reports the domain's A/AAAA addresses (and whether they match `AFWD_PUBLIC_IPV4`/`AFWD_PUBLIC_IPV6`), its `v=afwd1` record, any error in that record, and the resulting redirect. When a domain points at the service without a usable record, the 404 page shows the reason and links to the checker.
+
+The HTML pages are askama templates in `templates/`. They are compiled into the binary.
+
 The help domain also serves `/.well-known/security.txt`, with Trilobit's published contact address (`info@trilobit.nl`) and a rolling one-year expiry.
 
 Run the complete service with Docker:
@@ -32,7 +36,7 @@ View HTTP access logs with `docker logs -f afwd`.
 
 ## Usage statistics
 
-The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/` and `/stats` on the help domain, but not `/domains`, `/api/stats`, `/api/domains`, or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days. The public `/domains` page lists the 100 domains with the most requests during that period, excluding the help domain.
+The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/` and `/stats` on the help domain, but not `/domains`, `/api/stats`, `/api/domains`, `/api/check`, or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days. The public `/domains` page lists the 100 domains with the most requests during that period, excluding the help domain.
 
 The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). Containers on the same host can share the `afwd-stats` volume.
 

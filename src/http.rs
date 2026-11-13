@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration as StdDuration};
 
 use axum::{
     extract::{OriginalUri, Query, State},
     http::{
-        header::{AUTHORIZATION, CACHE_CONTROL, HOST, LOCATION, REFERER},
+        header::{AUTHORIZATION, CACHE_CONTROL, HOST, LOCATION, REFERER, RETRY_AFTER},
         uri::Authority,
         HeaderMap, HeaderValue, StatusCode, Uri,
     },
@@ -12,9 +12,11 @@ use axum::{
     Json, Router,
 };
 use sha2::{Digest, Sha256};
+use tokio::sync::Semaphore;
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
 use crate::{
+    check::{check, normalize_domain},
     dns::{DnsConfig, ResolveError},
     docs::DocsConfig,
     pages::{self, respond},
@@ -27,11 +29,17 @@ struct CertificateQuery {
     domain: String,
 }
 
+/// Domain checks that may run at the same time. More are refused, not queued, so a flood
+/// of checks cannot pile up slow DNS lookups.
+const MAX_CONCURRENT_CHECKS: usize = 16;
+const CHECK_TIMEOUT: StdDuration = StdDuration::from_secs(4);
+
 #[derive(Clone)]
 pub struct AppState {
     pub dns: DnsConfig,
     pub docs: DocsConfig,
     pub stats: Option<Stats>,
+    pub checks: Arc<Semaphore>,
 }
 
 pub fn router(dns: DnsConfig) -> Router {
@@ -43,7 +51,12 @@ pub fn router_with_docs(dns: DnsConfig, docs: DocsConfig) -> Router {
 }
 
 pub fn router_with_stats(dns: DnsConfig, docs: DocsConfig, stats: Option<Stats>) -> Router {
-    let state = Arc::new(AppState { dns, docs, stats });
+    let state = Arc::new(AppState {
+        dns,
+        docs,
+        stats,
+        checks: Arc::new(Semaphore::new(MAX_CONCURRENT_CHECKS)),
+    });
     Router::new()
         .route("/healthz", get(health))
         .route("/internal/cert-check", get(cert_check))
@@ -133,6 +146,9 @@ async fn forward(
                 }
             };
         }
+        if let Some(domain) = uri.path().strip_prefix("/api/check/") {
+            return check_api(&state, domain).await;
+        }
         if let Some(domain) = uri.path().strip_prefix("/api/stats/") {
             return stats_api(&state, &headers, domain).await;
         }
@@ -159,12 +175,18 @@ async fn forward(
         }
         Err(error @ (ResolveError::NotFound | ResolveError::Config(_))) => {
             // Unknown hosts are not recorded, so forged Host headers cannot fill the database.
-            if matches!(error, ResolveError::Config(_)) {
-                record(&state, &host, "config-error", &uri, &headers);
-            }
+            let reason = match error {
+                ResolveError::Config(error) => {
+                    record(&state, &host, "config-error", &uri, &headers);
+                    Some(error.to_string())
+                }
+                _ => None,
+            };
             respond(
                 StatusCode::NOT_FOUND,
                 pages::NotFound {
+                    domain: host,
+                    reason,
                     help_url: state.docs.help_url(),
                 },
             )
@@ -183,6 +205,30 @@ fn record(state: &AppState, host: &str, status: &str, uri: &Uri, headers: &Heade
     if let Some(stats) = &state.stats {
         let referer = headers.get(REFERER).and_then(|value| value.to_str().ok());
         stats.record(host, status, uri.path(), referer);
+    }
+}
+
+async fn check_api(state: &AppState, domain: &str) -> Response {
+    let Some(domain) = normalize_domain(domain) else {
+        return (StatusCode::BAD_REQUEST, "invalid domain name").into_response();
+    };
+    let Ok(_permit) = state.checks.try_acquire() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(RETRY_AFTER, "5")],
+            "Too many checks are running. Try again in a few seconds.",
+        )
+            .into_response();
+    };
+    let public = state.docs.public_addresses();
+    let lookup = check(&state.dns, &public, domain);
+    match tokio::time::timeout(CHECK_TIMEOUT, lookup).await {
+        Ok(Ok(result)) => ([(CACHE_CONTROL, "no-store")], Json(result)).into_response(),
+        Ok(Err(error)) => {
+            tracing::debug!(%error, "domain check lookup failed");
+            (StatusCode::SERVICE_UNAVAILABLE, "DNS lookup failed").into_response()
+        }
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "DNS lookup timed out").into_response(),
     }
 }
 
@@ -228,8 +274,25 @@ fn request_host(headers: &HeaderMap) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::request_host;
-    use axum::http::{header::HOST, HeaderMap, HeaderValue};
+    use std::{sync::Arc, time::Duration};
+
+    use super::{check_api, request_host, AppState};
+    use crate::{dns::DnsConfig, docs::DocsConfig};
+    use axum::http::{header::HOST, HeaderMap, HeaderValue, StatusCode};
+    use tokio::sync::Semaphore;
+
+    #[tokio::test]
+    async fn domain_checks_are_refused_when_all_slots_are_busy() {
+        let state = AppState {
+            dns: DnsConfig::new(Duration::from_secs(1)),
+            docs: DocsConfig::default(),
+            stats: None,
+            checks: Arc::new(Semaphore::new(0)),
+        };
+        let response = check_api(&state, "example.com").await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()["retry-after"], "5");
+    }
 
     #[test]
     fn ip_addresses_are_not_treated_as_domain_names() {

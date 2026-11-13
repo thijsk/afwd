@@ -407,3 +407,66 @@ async fn host_without_afwd_record_returns_not_found() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn domain_check_reports_missing_records_and_is_limited_to_help_domain() {
+    let app = router_with_docs(
+        DnsConfig::new(Duration::from_secs(60)),
+        DocsConfig::with_help_domain("afwd.nl"),
+    );
+    let get = |host: &'static str, uri: &'static str| {
+        Request::builder()
+            .uri(uri)
+            .header("host", host)
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let response = app
+        .clone()
+        .oneshot(get("afwd.nl", "/api/check/Customer.invalid."))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["domain"], "customer.invalid");
+    assert_eq!(body["addresses"], serde_json::json!([]));
+    assert!(body["record"].is_null());
+
+    let response = app
+        .clone()
+        .oneshot(get("afwd.nl", "/api/check/127.0.0.1"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(get("customer.invalid", "/api/check/example.com"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn not_found_page_links_to_the_domain_check() {
+    let response = router_with_docs(
+        DnsConfig::new(Duration::from_secs(60)),
+        DocsConfig::with_help_domain("afwd.nl"),
+    )
+    .oneshot(
+        Request::builder()
+            .uri("/")
+            .header("host", "customer.invalid")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
+    assert!(body.contains("<strong>customer.invalid</strong>"));
+    assert!(body.contains("https://afwd.nl/#check=customer.invalid"));
+}

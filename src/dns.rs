@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
 
 use hickory_resolver::proto::rr::{IntoName, RData, RecordType};
 use hickory_resolver::{
@@ -40,21 +40,40 @@ impl DnsConfig {
     }
 
     pub async fn resolve(&self, host: &str) -> Result<ForwardingConfig, ResolveError> {
-        if let Some(config) = self.lookup_txt(host).await? {
-            return Ok(config);
+        let text = self.find_record(host).await?.ok_or(ResolveError::NotFound)?;
+        Ok(parse_txt_record(&text)?)
+    }
+
+    /// The raw `v=afwd1` TXT record for `host`, or for the target of its CNAME.
+    pub async fn find_record(
+        &self,
+        host: &str,
+    ) -> Result<Option<String>, hickory_resolver::ResolveError> {
+        if let Some(text) = self.lookup_txt(host).await? {
+            return Ok(Some(text));
         }
 
         let Some(aliases) = found(self.resolver.lookup(host, RecordType::CNAME).await)? else {
-            return Err(ResolveError::NotFound);
+            return Ok(None);
         };
         for record in aliases.iter() {
             if let RData::CNAME(target) = record {
-                if let Some(config) = self.lookup_txt(target.0.clone()).await? {
-                    return Ok(config);
+                if let Some(text) = self.lookup_txt(target.0.clone()).await? {
+                    return Ok(Some(text));
                 }
             }
         }
-        Err(ResolveError::NotFound)
+        Ok(None)
+    }
+
+    /// The A and AAAA addresses of `host`, following CNAMEs.
+    pub async fn addresses(
+        &self,
+        host: &str,
+    ) -> Result<Vec<IpAddr>, hickory_resolver::ResolveError> {
+        Ok(found(self.resolver.lookup_ip(host).await)?
+            .map(|lookup| lookup.iter().collect())
+            .unwrap_or_default())
     }
 
     /// SHA-256 hex hashes of stats tokens from `_afwd-stats.<host>` TXT records.
@@ -88,23 +107,20 @@ impl DnsConfig {
     async fn lookup_txt<N: IntoName>(
         &self,
         host: N,
-    ) -> Result<Option<ForwardingConfig>, ResolveError> {
+    ) -> Result<Option<String>, hickory_resolver::ResolveError> {
         let Some(records) = found(self.resolver.txt_lookup(host).await)? else {
             return Ok(None);
         };
-        for record in records.iter() {
+        Ok(records.iter().find_map(|record| {
             let bytes = record
                 .txt_data()
                 .iter()
                 .flat_map(|chunk| chunk.iter().copied())
                 .collect::<Vec<_>>();
-            if let Ok(text) = std::str::from_utf8(&bytes) {
-                if text.starts_with("v=afwd1") {
-                    return Ok(Some(parse_txt_record(text)?));
-                }
-            }
-        }
-        Ok(None)
+            String::from_utf8(bytes)
+                .ok()
+                .filter(|text| text.starts_with("v=afwd1"))
+        }))
     }
 }
 

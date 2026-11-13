@@ -13,12 +13,20 @@ use crate::docs::DocsConfig;
 #[template(path = "help.html")]
 pub struct Help {
     pub dns_records: Vec<String>,
+    /// Comma-separated, for the record builder.
+    pub ipv4: String,
+    pub ipv6: String,
+    pub help_domain: Option<String>,
 }
 
 impl Help {
     pub fn new(config: &DocsConfig) -> Self {
+        let join = |addresses: Vec<String>| addresses.join(",");
         Self {
             dns_records: config.dns_records(),
+            ipv4: join(config.public_ipv4().iter().map(ToString::to_string).collect()),
+            ipv6: join(config.public_ipv6().iter().map(ToString::to_string).collect()),
+            help_domain: config.help_domain().map(str::to_owned),
         }
     }
 }
@@ -34,6 +42,9 @@ pub struct DomainsPage;
 #[derive(Template)]
 #[template(path = "not_found.html")]
 pub struct NotFound {
+    pub domain: String,
+    /// Why the AFWD record that was found cannot be used; `None` when there is no record.
+    pub reason: Option<String>,
     pub help_url: Option<String>,
 }
 
@@ -56,6 +67,8 @@ mod tests {
     #[test]
     fn values_are_html_escaped() {
         let page = NotFound {
+            domain: "<script>.example".to_owned(),
+            reason: Some("unsupported token <script>".to_owned()),
             help_url: Some("https://x/\"><script>".to_owned()),
         }
         .render()
@@ -67,6 +80,9 @@ mod tests {
     fn help_page_lists_records() {
         let page = Help {
             dns_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
+            ipv4: "192.0.2.1".to_owned(),
+            ipv6: String::new(),
+            help_domain: Some("afwd.nl".to_owned()),
         }
         .render()
         .unwrap();
