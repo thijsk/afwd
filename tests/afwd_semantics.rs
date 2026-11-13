@@ -346,3 +346,32 @@ async fn robots_txt_is_served_only_on_help_domain() {
     let response = app.oneshot(request("customer.invalid")).await.unwrap();
     assert_ne!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn host_without_afwd_record_returns_not_found() {
+    let app = router(DnsConfig::new(Duration::from_secs(60)));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header("host", "customer.invalid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/internal/cert-check?domain=customer.invalid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}

@@ -44,7 +44,9 @@ impl DnsConfig {
             return Ok(config);
         }
 
-        let aliases = self.resolver.lookup(host, RecordType::CNAME).await?;
+        let Some(aliases) = found(self.resolver.lookup(host, RecordType::CNAME).await)? else {
+            return Err(ResolveError::NotFound);
+        };
         for record in aliases.iter() {
             if let RData::CNAME(target) = record {
                 if let Some(config) = self.lookup_txt(target.0.clone()).await? {
@@ -87,7 +89,9 @@ impl DnsConfig {
         &self,
         host: N,
     ) -> Result<Option<ForwardingConfig>, ResolveError> {
-        let records = self.resolver.txt_lookup(host).await?;
+        let Some(records) = found(self.resolver.txt_lookup(host).await)? else {
+            return Ok(None);
+        };
         for record in records.iter() {
             let bytes = record
                 .txt_data()
@@ -101,5 +105,45 @@ impl DnsConfig {
             }
         }
         Ok(None)
+    }
+}
+
+/// An answer saying the name or record type does not exist is not a DNS failure:
+/// it means there is no AFWD record here. Timeouts and server failures stay errors.
+fn found<T>(
+    result: Result<T, hickory_resolver::ResolveError>,
+) -> Result<Option<T>, hickory_resolver::ResolveError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.is_no_records_found() => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hickory_resolver::proto::{
+        op::{Query, ResponseCode},
+        ProtoError,
+    };
+
+    use super::found;
+
+    fn negative_answer(code: ResponseCode) -> hickory_resolver::ResolveError {
+        ProtoError::nx_error(Box::new(Query::new()), None, None, None, code, true, None).into()
+    }
+
+    #[test]
+    fn missing_names_and_record_types_are_not_dns_failures() {
+        for code in [ResponseCode::NXDomain, ResponseCode::NoError] {
+            assert!(matches!(found::<()>(Err(negative_answer(code))), Ok(None)));
+        }
+        assert!(matches!(found(Ok(1)), Ok(Some(1))));
+    }
+
+    #[test]
+    fn other_dns_errors_stay_failures() {
+        let error: hickory_resolver::ResolveError = ProtoError::from("timed out").into();
+        assert!(found::<()>(Err(error)).is_err());
     }
 }
