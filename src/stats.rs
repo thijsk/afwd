@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS counts (
     PRIMARY KEY (host, hour, kind, value)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS counts_hour ON counts (hour);
+CREATE INDEX IF NOT EXISTS counts_status ON counts (host, n) WHERE kind = 'status';
 ";
 
 // Caps distinct paths and referrers at 100 per host per hour so scanners cannot grow the table.
