@@ -10,23 +10,40 @@ use axum::{
 use crate::docs::DocsConfig;
 
 #[derive(Template)]
-#[template(path = "help.html")]
-pub struct Help {
-    pub dns_records: Vec<String>,
+#[template(path = "index.html")]
+pub struct Landing {
     /// Comma-separated, for the record builder.
     pub ipv4: String,
     pub ipv6: String,
     pub help_domain: Option<String>,
 }
 
-impl Help {
+impl Landing {
     pub fn new(config: &DocsConfig) -> Self {
         let join = |addresses: Vec<String>| addresses.join(",");
         Self {
-            dns_records: config.dns_records(),
             ipv4: join(config.public_ipv4().iter().map(ToString::to_string).collect()),
             ipv6: join(config.public_ipv6().iter().map(ToString::to_string).collect()),
             help_domain: config.help_domain().map(str::to_owned),
+        }
+    }
+
+    /// The address shown in the "how it works" example.
+    fn example_address(&self) -> &str {
+        self.ipv4.split(',').next().filter(|address| !address.is_empty()).unwrap_or("192.0.2.1")
+    }
+}
+
+#[derive(Template)]
+#[template(path = "docs.html")]
+pub struct Docs {
+    pub dns_records: Vec<String>,
+}
+
+impl Docs {
+    pub fn new(config: &DocsConfig) -> Self {
+        Self {
+            dns_records: config.dns_records(),
         }
     }
 }
@@ -62,7 +79,7 @@ pub fn respond(status: StatusCode, page: impl Template) -> Response {
 mod tests {
     use askama::Template;
 
-    use super::{Help, NotFound};
+    use super::{Docs, Landing, NotFound};
 
     #[test]
     fn values_are_html_escaped() {
@@ -77,15 +94,23 @@ mod tests {
     }
 
     #[test]
-    fn help_page_lists_records() {
-        let page = Help {
+    fn docs_page_lists_records() {
+        let page = Docs {
             dns_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
-            ipv4: "192.0.2.1".to_owned(),
-            ipv6: String::new(),
-            help_domain: Some("afwd.nl".to_owned()),
         }
         .render()
         .unwrap();
         assert!(page.contains("example.com. 14400 A     192.0.2.1"));
+    }
+
+    #[test]
+    fn landing_page_uses_the_first_public_address() {
+        let page = Landing {
+            ipv4: "198.51.100.7,198.51.100.8".to_owned(),
+            ipv6: String::new(),
+            help_domain: Some("afwd.nl".to_owned()),
+        };
+        assert_eq!(page.example_address(), "198.51.100.7");
+        assert!(page.render().unwrap().contains("data-ipv4=\"198.51.100.7,198.51.100.8\""));
     }
 }

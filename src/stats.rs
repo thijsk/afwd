@@ -42,6 +42,12 @@ pub struct Stats {
     db: Arc<Mutex<Connection>>,
 }
 
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Summary {
+    pub requests: i64,
+    pub domains: usize,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct Report {
     pub hits: Vec<(i64, String, i64)>,
@@ -125,6 +131,22 @@ impl Stats {
     }
 
     pub async fn top_domains(&self, excluded_host: &str) -> rusqlite::Result<Vec<(String, i64)>> {
+        let mut rows = self.ranked_domains(excluded_host).await?;
+        rows.truncate(100);
+        Ok(rows)
+    }
+
+    /// Total requests and number of registrable domains over the retention period.
+    pub async fn summary(&self, excluded_host: &str) -> rusqlite::Result<Summary> {
+        let rows = self.ranked_domains(excluded_host).await?;
+        Ok(Summary {
+            requests: rows.iter().map(|(_, total)| total).sum(),
+            domains: rows.len(),
+        })
+    }
+
+    /// Request totals per registrable domain, busiest first.
+    async fn ranked_domains(&self, excluded_host: &str) -> rusqlite::Result<Vec<(String, i64)>> {
         let excluded_host = excluded_host.to_ascii_lowercase();
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
@@ -147,7 +169,6 @@ impl Stats {
             rows.sort_by(|(left, left_total), (right, right_total)| {
                 right_total.cmp(left_total).then_with(|| left.cmp(right))
             });
-            rows.truncate(100);
             Ok(rows)
         })
         .await
@@ -237,6 +258,11 @@ mod tests {
         assert_eq!(domains[0], ("domain-100.example".to_owned(), 101));
         assert_eq!(domains[99], ("domain-001.example".to_owned(), 2));
         assert!(!domains.iter().any(|(domain, _)| domain == "help.example"));
+
+        // The summary counts every domain, not only the top 100.
+        let summary = stats.summary("help.example").await.unwrap();
+        assert_eq!(summary.domains, 101);
+        assert_eq!(summary.requests, (1..=101).sum::<i64>());
 
         drop(stats);
         for suffix in ["", "-wal", "-shm"] {

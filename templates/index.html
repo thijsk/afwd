@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}AFWD - Free web forwarding with one DNS record{% endblock %}
+{% block body_class %}landing{% endblock %}
+{% block main %}
+  <main>
+    <section class="hero">
+      <div class="hero-texture" aria-hidden="true">
+        <span>v=afwd1 dest=https://www.example.net/ preserve=y type=308</span>
+        <span>example.com. 14400 A {{ self.example_address() }} TXT CNAME AAAA</span>
+        <span>type=perm append=y dest=https://example.org/?domain= cert=no</span>
+        <span>*.example.com. 14400 CNAME example.com. v=afwd1 preserve=y</span>
+        <span>301 302 307 308 perm temp v=afwd1 dest=https://example.net/</span>
+        <span>_afwd-stats.example.com. TXT v=afwdstats1 h=9f86d081884c7d65</span>
+        <span>v=afwd1 dest=https://www.example.net/ preserve=y type=308</span>
+        <span>example.com. 14400 A {{ self.example_address() }} TXT CNAME AAAA</span>
+      </div>
+      <div class="wrap hero-inner">
+        <div class="hero-copy">
+          <h1>Forward any domain<br>with <em>one DNS record</em>.</h1>
+          <p class="tagline"><b>Free</b> web forwarding. No account. HTTPS included.</p>
+          <p class="actions">
+            <a class="btn btn-primary" href="#setup">Set up your domain</a>
+            <a class="btn btn-ghost" href="#how">How it works</a>
+          </p>
+          <p class="proof" id="proof" hidden></p>
+        </div>
+
+        <figure class="demo" aria-label="Example: a TXT record and the redirect it creates">
+          <div class="demo-record">
+            <span class="badge">TXT</span>
+            <code id="demo-txt">v=afwd1 preserve=y type=308 dest=https://new.example/</code>
+          </div>
+          <svg class="demo-arrow" viewBox="0 0 24 40" aria-hidden="true"><path d="M12 2v34m-8-8 8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="demo-browser">
+            <div class="demo-chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="demo-bar">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="7" width="10" height="7.5" rx="1.5" fill="currentColor"/></svg>
+              <span id="demo-from">old-brand.example/blog/post?x=1</span>
+            </div>
+            <div class="demo-result">
+              <span class="badge badge-status" id="demo-status">308</span>
+              <span class="demo-to" id="demo-to">new.example/blog/post?x=1</span>
+            </div>
+          </div>
+          <figcaption id="demo-caption">Keep the path and query string</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band band-light" id="how">
+      <div class="wrap">
+        <h2 class="section-title">How it works</h2>
+        <ol class="steps">
+          <li>
+            <span class="step-number">1</span>
+            <h3>Point your domain here</h3>
+            <p>Add A and AAAA records, or a CNAME for a subdomain.</p>
+            <code>example.com.&nbsp; A&nbsp; {{ self.example_address() }}</code>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <h3>Add one TXT record</h3>
+            <p>It says where visitors should go, and how.</p>
+            <code>v=afwd1 dest=https://example.net/</code>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <h3>That's it</h3>
+            <p>Visitors are redirected. Certificates for HTTPS are issued and renewed automatically.</p>
+            <code>302 → https://example.net/</code>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="band" id="setup">
+      <div class="wrap narrow">
+        <h2 class="section-title">Set up your domain</h2>
+        <p class="section-lead">Fill in your domain and destination to get the exact records for your DNS provider. Then check what AFWD sees.</p>
+        <div class="card">
+          <form id="builder" data-ipv4="{{ ipv4 }}" data-ipv6="{{ ipv6 }}" novalidate>
+            <div class="fields">
+              <label>Your domain <input id="b-domain" placeholder="example.com" autocomplete="off" spellcheck="false"></label>
+              <label>Forward to <input id="b-dest" placeholder="https://www.example.net/" autocomplete="off" spellcheck="false"></label>
+            </div>
+            <label class="select">Redirect type
+              <select id="b-type">
+                <option value="302">302 Temporary (default)</option>
+                <option value="301">301 Permanent</option>
+                <option value="307">307 Temporary, keep method</option>
+                <option value="308">308 Permanent, keep method</option>
+              </select></label>
+            <p class="options">
+              <label><input type="checkbox" id="b-preserve"> Keep the path and query string</label>
+              <label><input type="checkbox" id="b-append"> Append the domain to the destination</label>
+              <label><input type="checkbox" id="b-wildcard"> Also forward all subdomains</label>
+            </p>
+          </form>
+          <p id="b-message" class="muted">Fill in your domain and destination to get your DNS records.</p>
+          <div id="b-output" hidden>
+            <table class="records">
+              <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
+              <tbody id="b-records"></tbody>
+            </table>
+{%- if let Some(help_domain) = help_domain %}
+            <p class="hint">For a subdomain such as <code>go.example.com</code> you can use a CNAME to <code>{{ help_domain }}</code> instead of the A and AAAA records.</p>
+{%- endif %}
+            <p class="preview">With this record, <code id="b-from"></code> redirects to <code id="b-to"></code>.</p>
+          </div>
+          <div class="check">
+            <div>
+              <h3>Check your domain</h3>
+              <p class="muted">After you add the records, check what AFWD sees. Results can be up to a minute old.</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="check">Check my domain</button>
+          </div>
+          <ul id="checks" class="checks" aria-live="polite"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="band band-dark">
+      <div class="wrap">
+        <h2 class="section-title">Why AFWD</h2>
+        <ul class="features">
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>
+            <h3>Free, no account</h3>
+            <p>Your configuration lives in your own DNS. There is nothing to sign up for and nothing to lose.</p>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <h3>Automatic HTTPS</h3>
+            <p>Certificates are issued and renewed for every domain that points here.</p>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M4 12h16M4 17h7"/><path d="m16 14 4 3-4 3"/></svg>
+            <h3>Keeps your links working</h3>
+            <p>Forward <code>/any/path?query</code> to the same place on the new site, or everything to one page.</p>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12"/><path d="m12 6 6 6-6 6"/><path d="M20 5v14"/></svg>
+            <h3>Every redirect type</h3>
+            <p>301, 302, 307 and 308, so browsers and search engines do exactly what you intend.</p>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
+            <h3>Private statistics</h3>
+            <p>Hits, paths and referrers for your domain. No IP addresses, no user agents, no cookies.</p>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H6a2 2 0 0 0-2 2v3m16 0V6a2 2 0 0 0-2-2h-3M4 15v3a2 2 0 0 0 2 2h3m6 0h3a2 2 0 0 0 2-2v-3"/><path d="M9 12h6"/></svg>
+            <h3>Open format</h3>
+            <p>Records follow the open <a href="https://afwd.uk/">afwd1 specification</a>. Readable, documented, and yours.</p>
+          </li>
+        </ul>
+        <p class="band-cta"><a class="btn btn-primary" href="#setup">Set up your domain</a> <a class="btn btn-ghost" href="/docs">Read the docs</a></p>
+      </div>
+    </section>
+  </main>
+  <script>
+{% include "landing.js" %}
+{% include "check.js" %}
+  </script>
+{% endblock %}

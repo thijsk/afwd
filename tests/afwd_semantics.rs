@@ -214,7 +214,7 @@ async fn domain_leaderboard_is_public_and_limited_to_help_domain() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = to_bytes(response.into_body(), 1 << 16).await.unwrap();
     assert!(std::str::from_utf8(&body)
         .unwrap()
         .contains("100 most active domains"));
@@ -279,6 +279,8 @@ async fn help_pages_are_counted_but_other_help_routes_are_not() {
     for (host, path) in [
         ("help.example", "/"),
         ("help.example", "/stats"),
+        ("help.example", "/docs"),
+        ("help.example", "/api/summary"),
         ("help.example", "/.well-known/security.txt"),
         ("help.example", "/api/stats/example.com"),
         ("127.0.0.1", "/"),
@@ -294,7 +296,7 @@ async fn help_pages_are_counted_but_other_help_routes_are_not() {
             )
             .await
             .unwrap();
-        if path == "/" || path == "/stats" {
+        if matches!(path, "/" | "/stats" | "/docs" | "/api/summary") {
             assert_eq!(response.status(), StatusCode::OK);
         }
     }
@@ -303,11 +305,12 @@ async fn help_pages_are_counted_but_other_help_routes_are_not() {
     let report = stats.query("help.example".to_owned()).await.unwrap();
     assert_eq!(
         report.hits.iter().map(|(_, _, count)| count).sum::<i64>(),
-        2
+        3
     );
-    assert_eq!(report.paths.len(), 2);
+    assert_eq!(report.paths.len(), 3);
     assert!(report.paths.contains(&("/".to_owned(), 1)));
     assert!(report.paths.contains(&("/stats".to_owned(), 1)));
+    assert!(report.paths.contains(&("/docs".to_owned(), 1)));
     assert!(stats
         .query("127.0.0.1".to_owned())
         .await
@@ -465,7 +468,7 @@ async fn not_found_page_links_to_the_domain_check() {
     .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = to_bytes(response.into_body(), 1 << 16).await.unwrap();
     let body = std::str::from_utf8(&body).unwrap();
     assert!(body.contains("<strong>customer.invalid</strong>"));
     assert!(body.contains("https://afwd.nl/#check=customer.invalid"));

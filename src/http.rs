@@ -100,7 +100,7 @@ async fn forward(
         if state.docs.is_help_domain(&host) {
             record(&state, &host, "200", &uri, &headers);
         }
-        return respond(StatusCode::OK, pages::Help::new(&state.docs));
+        return respond(StatusCode::OK, pages::Landing::new(&state.docs));
     }
     if state.docs.is_help_domain(&host) {
         if uri.path() == "/.well-known/security.txt" {
@@ -130,8 +130,26 @@ async fn forward(
             record(&state, &host, "200", &uri, &headers);
             return respond(StatusCode::OK, pages::StatsPage);
         }
+        if uri.path() == "/docs" {
+            record(&state, &host, "200", &uri, &headers);
+            return respond(StatusCode::OK, pages::Docs::new(&state.docs));
+        }
         if uri.path() == "/domains" {
             return respond(StatusCode::OK, pages::DomainsPage);
+        }
+        if uri.path() == "/api/summary" {
+            let Some(stats) = &state.stats else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            let excluded_host = state.docs.help_domain().unwrap_or_default();
+            return match stats.summary(excluded_host).await {
+                // Shown on the landing page, so browsers may reuse it for a few minutes.
+                Ok(summary) => ([(CACHE_CONTROL, "public, max-age=300")], Json(summary)).into_response(),
+                Err(error) => {
+                    tracing::warn!(%error, "summary query failed");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            };
         }
         if uri.path() == "/api/domains" {
             let Some(stats) = &state.stats else {

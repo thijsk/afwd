@@ -9,15 +9,22 @@
   </style>
 </head>
 <body>
-  <h1>Forwarding not configured</h1>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <span class="brand">{% include "logo.svg" %}<span>afwd</span></span>
+    </div>
+  </header>
+  <main class="wrap page">
+    <h1>Forwarding not configured</h1>
 {%- if let Some(reason) = reason %}
-  <p><strong>{{ domain }}</strong> points at AFWD and has an AFWD TXT record, but the record is invalid:</p>
-  <p class="value">{{ reason }}</p>
+    <p><strong>{{ domain }}</strong> points at AFWD and has an AFWD TXT record, but the record is invalid:</p>
+    <p class="value">{{ reason }}</p>
 {%- else %}
-  <p><strong>{{ domain }}</strong> points at AFWD, but it has no <code>v=afwd1</code> TXT record, so there is nowhere to forward to.</p>
+    <p><strong>{{ domain }}</strong> points at AFWD, but it has no <code>v=afwd1</code> TXT record, so there is nowhere to forward to.</p>
 {%- endif %}
 {%- if let Some(help_url) = help_url %}
-  <p><a href="{{ help_url }}#check={{ domain|urlencode }}">Check this domain</a> or read the <a href="{{ help_url }}">AFWD help page</a>.</p>
+    <p class="actions"><a class="btn btn-primary" href="{{ help_url }}#check={{ domain|urlencode }}">Check this domain</a> <a class="btn btn-ghost" href="{{ help_url }}docs">Read the docs</a></p>
 {%- endif %}
+  </main>
 </body>
 </html>

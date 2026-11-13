@@ -1,44 +1,9 @@
 {% extends "base.html" %}
-{% block title %}AFWD - Free Web Forwarding{% endblock %}
+{% block title %}Documentation | AFWD{% endblock %}
+{% block description %}How to configure AFWD web forwarding: DNS records, TXT options, redirect status codes, HTTPS and statistics.{% endblock %}
 {% block content %}
-  <h1>AFWD</h1>
-  <p>Free DNS-based web forwarding. No signup or login is required.</p>
-  <p>This free service is provided by <a href="https://www.trilobit.nl/">Trilobit BV</a>.</p>
-
-  <section id="setup" class="panel">
-    <h2>Set up your domain</h2>
-    <form id="builder" data-ipv4="{{ ipv4 }}" data-ipv6="{{ ipv6 }}" novalidate>
-      <p><label>Your domain <input id="b-domain" placeholder="example.com" autocomplete="off" spellcheck="false"></label></p>
-      <p><label>Forward to <input id="b-dest" placeholder="https://www.example.net/" autocomplete="off" spellcheck="false"></label></p>
-      <p><label>Redirect type
-        <select id="b-type">
-          <option value="302">302 Temporary (default)</option>
-          <option value="301">301 Permanent</option>
-          <option value="307">307 Temporary, keep method</option>
-          <option value="308">308 Permanent, keep method</option>
-        </select></label></p>
-      <p class="options">
-        <label><input type="checkbox" id="b-preserve"> Keep the path and query string</label>
-        <label><input type="checkbox" id="b-append"> Append the domain to the destination</label>
-        <label><input type="checkbox" id="b-wildcard"> Also forward all subdomains</label>
-      </p>
-    </form>
-    <p id="b-message">Fill in your domain and destination to get your DNS records.</p>
-    <div id="b-output" hidden>
-      <table class="records">
-        <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
-        <tbody id="b-records"></tbody>
-      </table>
-{%- if let Some(help_domain) = help_domain %}
-      <p class="hint">For a subdomain such as <code>go.example.com</code> you can use a CNAME to <code>{{ help_domain }}</code> instead of the A and AAAA records.</p>
-{%- endif %}
-      <p>With this record, <code id="b-from"></code> redirects to <code id="b-to"></code>.</p>
-    </div>
-    <h3>Check your domain</h3>
-    <p>After you add the records, check what AFWD sees. Results can be up to a minute old.</p>
-    <p><button type="button" id="check">Check my domain</button></p>
-    <ul id="checks" class="checks" aria-live="polite"></ul>
-  </section>
+  <h1>Documentation</h1>
+  <p class="lead">Everything AFWD does is configured in your DNS. The <a href="/#setup">setup tool</a> builds the records for you; this page explains every option.</p>
 
   <h2>DNS setup</h2>
   <p>Point your domain at this service with A and/or AAAA records. For a subdomain, use a CNAME pointing to the configured domain.</p>
@@ -89,7 +54,4 @@ v=afwd1 type=perm append=y dest=https://example.net/?domain=</pre>
   </ol>
   <p>To give access to more tokens, add more <code>h=</code> records. To remove access, delete the record.</p>
   <p>This service is based on the specifications defined by <a href="https://afwd.uk/">afwd.uk</a>.</p>
-  <script>
-{% include "check.js" %}
-  </script>
 {% endblock %}
