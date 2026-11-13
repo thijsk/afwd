@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}AFWD statistics{% endblock %}
+{% block content %}
+  <h1>AFWD statistics</h1>
+  <p><label>Domain <input id="domain" placeholder="example.com" autocomplete="off" required></label></p>
+
+  <h2>1. Create a token</h2>
+  <p>The token is created in your browser and is never sent to the server. It is stored in this browser only.</p>
+  <p class="warning"><strong>You are responsible for storing your token.</strong> AFWD does not store the token and cannot recover it. Clearing your browser data removes it. If you lose it, create a new token and replace the DNS record.</p>
+  <p><button type="button" id="generate">Create token</button> <span id="generated"></span></p>
+  <div id="setup" hidden>
+    <p>Token</p>
+    <code class="value" id="new-token"></code>
+    <p><button type="button" data-copy="new-token">Copy token</button></p>
+
+    <h2>2. Add the DNS record</h2>
+    <p>Name</p>
+    <code class="value" id="record-name"></code>
+    <p><button type="button" data-copy="record-name">Copy name</button></p>
+    <p>Type: <strong>TXT</strong></p>
+    <p>Value</p>
+    <code class="value" id="record-value"></code>
+    <p><button type="button" data-copy="record-value">Copy value</button></p>
+    <p>DNS changes can take a while to become visible.</p>
+  </div>
+
+  <h2>View statistics</h2>
+  <form id="view">
+    <p><label>Token <input id="token" type="password" autocomplete="off" required></label></p>
+    <p id="token-source"></p>
+    <button>Show</button>
+  </form>
+  <div id="result"></div>
+  <script>
+{% include "stats.js" %}
+  </script>
+{% endblock %}

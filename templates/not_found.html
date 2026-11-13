@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forwarding not configured</title>
+  <style>
+{% include "style.css" %}
+  </style>
+</head>
+<body>
+  <h1>Forwarding not configured</h1>
+  <p>Forwarding configuration not found.</p>
+{%- if let Some(help_url) = help_url %}
+  <p>Read the <a href="{{ help_url }}">AFWD help page</a>.</p>
+{%- endif %}
+</body>
+</html>

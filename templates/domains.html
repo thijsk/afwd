@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Most active domains | AFWD{% endblock %}
+{% block content %}
+  <h1>100 most active domains</h1>
+  <p>Ranked by requests in the last 90 days.</p>
+  <p id="status">Loading...</p>
+  <table class="ranking" hidden>
+    <thead><tr><th>#</th><th>Domain</th><th>Requests</th></tr></thead>
+    <tbody id="domains"></tbody>
+  </table>
+  <script>
+    (async () => {
+      const status = document.getElementById('status');
+      try {
+        const response = await fetch('/api/domains', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Error ${response.status}`);
+        const domains = await response.json();
+        const body = document.getElementById('domains');
+        domains.forEach(([domain, requests], index) => {
+          const row = body.insertRow();
+          row.insertCell().textContent = index + 1;
+          row.insertCell().textContent = domain;
+          row.insertCell().textContent = requests.toLocaleString();
+        });
+        document.querySelector('table').hidden = domains.length === 0;
+        status.textContent = domains.length ? '' : 'No active domains yet.';
+      } catch (error) {
+        status.textContent = `Could not load domains: ${error.message}`;
+      }
+    })();
+  </script>
+{% endblock %}

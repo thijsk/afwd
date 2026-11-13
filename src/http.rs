@@ -7,7 +7,7 @@ use axum::{
         uri::Authority,
         HeaderMap, HeaderValue, StatusCode, Uri,
     },
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -16,7 +16,8 @@ use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
 use crate::{
     dns::{DnsConfig, ResolveError},
-    docs::{render, DocsConfig},
+    docs::DocsConfig,
+    pages::{self, respond},
     redirect::redirect_url,
     stats::Stats,
 };
@@ -86,7 +87,7 @@ async fn forward(
         if state.docs.is_help_domain(&host) {
             record(&state, &host, "200", &uri, &headers);
         }
-        return axum::response::Html(render(&state.docs)).into_response();
+        return respond(StatusCode::OK, pages::Help::new(&state.docs));
     }
     if state.docs.is_help_domain(&host) {
         if uri.path() == "/.well-known/security.txt" {
@@ -114,10 +115,10 @@ async fn forward(
         }
         if uri.path() == "/stats" {
             record(&state, &host, "200", &uri, &headers);
-            return Html(STATS_PAGE).into_response();
+            return respond(StatusCode::OK, pages::StatsPage);
         }
         if uri.path() == "/domains" {
-            return Html(DOMAINS_PAGE).into_response();
+            return respond(StatusCode::OK, pages::DomainsPage);
         }
         if uri.path() == "/api/domains" {
             let Some(stats) = &state.stats else {
@@ -161,15 +162,12 @@ async fn forward(
             if matches!(error, ResolveError::Config(_)) {
                 record(&state, &host, "config-error", &uri, &headers);
             }
-            let body = state.docs.help_url().map_or_else(
-                || "Forwarding configuration not found.".to_owned(),
-                |help_url| {
-                    format!(
-                        "Forwarding configuration not found. Read the <a href=\"{help_url}\">AFWD help page</a>."
-                    )
+            respond(
+                StatusCode::NOT_FOUND,
+                pages::NotFound {
+                    help_url: state.docs.help_url(),
                 },
-            );
-            (StatusCode::NOT_FOUND, Html(body)).into_response()
+            )
         }
         Err(ResolveError::Dns(_)) => {
             (StatusCode::SERVICE_UNAVAILABLE, "DNS lookup failed").into_response()
@@ -216,222 +214,6 @@ async fn stats_api(state: &AppState, headers: &HeaderMap, domain: &str) -> Respo
         }
     }
 }
-
-// Paths and referrers are attacker-controlled, so the page only renders them via textContent.
-const STATS_PAGE: &str = r#"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AFWD statistics</title>
-  <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 2rem 1.25rem; }
-    input { width: 100%; box-sizing: border-box; }
-    code { display: block; overflow-wrap: anywhere; padding: .5rem; background: #8882; border-radius: .4rem; }
-    .warning { border: 3px solid #d33; border-radius: .4rem; padding: 1rem; font-size: 1.15rem; }
-    table { border-collapse: collapse; width: 100%; }
-    td { border-bottom: 1px solid #8888; padding: .25rem .5rem; overflow-wrap: anywhere; }
-    td:nth-child(2) { text-align: right; white-space: nowrap; }
-    td:nth-child(3) { width: 40%; }
-    .bar { height: .8rem; min-width: 1px; background: #4a8; border-radius: .2rem; }
-  </style>
-</head>
-<body>
-  <h1>AFWD statistics</h1>
-  <p><label>Domain <input id="domain" placeholder="example.com" autocomplete="off" required></label></p>
-
-  <h2>1. Create a token</h2>
-  <p>The token is created in your browser and is never sent to the server. It is stored in this browser only.</p>
-  <p class="warning"><strong>You are responsible for storing your token.</strong> AFWD does not store the token and cannot recover it. Clearing your browser data removes it. If you lose it, create a new token and replace the DNS record.</p>
-  <p><button type="button" id="generate">Create token</button> <span id="generated"></span></p>
-  <div id="setup" hidden>
-    <p>Token</p>
-    <code id="new-token"></code>
-    <p><button type="button" data-copy="new-token">Copy token</button></p>
-
-    <h2>2. Add the DNS record</h2>
-    <p>Name</p>
-    <code id="record-name"></code>
-    <p><button type="button" data-copy="record-name">Copy name</button></p>
-    <p>Type: <strong>TXT</strong></p>
-    <p>Value</p>
-    <code id="record-value"></code>
-    <p><button type="button" data-copy="record-value">Copy value</button></p>
-    <p>DNS changes can take a while to become visible.</p>
-  </div>
-
-  <h2>View statistics</h2>
-  <form id="view">
-    <p><label>Token <input id="token" type="password" autocomplete="off" required></label></p>
-    <p id="token-source"></p>
-    <button>Show</button>
-  </form>
-  <div id="result"></div>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    // Storage can be unavailable (private windows, blocked site data); the page still works without it.
-    const load = (key) => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
-    const save = (key, value) => { try { localStorage.setItem(key, value); return true; } catch { return false; } };
-    const domain = () => $('domain').value.trim().replace(/\.$/, '').toLowerCase();
-    const tokenKey = (name) => `afwd-stats-token:${name}`;
-    const hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
-      .map((b) => b.toString(16).padStart(2, '0')).join('');
-
-    const loadToken = () => {
-      const token = domain() ? load(tokenKey(domain())) : '';
-      $('token').value = token;
-      $('token-source').textContent = token
-        ? 'Token loaded from this browser.'
-        : 'No token stored in this browser for this domain. Create one above or paste an existing token.';
-    };
-    $('domain').value = load('afwd-stats-domain');
-    $('domain').oninput = () => { $('setup').hidden = true; $('generated').textContent = ''; loadToken(); };
-    $('token').oninput = () => { $('token-source').textContent = ''; };
-    loadToken();
-
-    $('generate').onclick = async () => {
-      const name = domain();
-      if (!name) {
-        $('domain').reportValidity();
-        return;
-      }
-      const replaced = load(tokenKey(name));
-      const bytes = crypto.getRandomValues(new Uint8Array(32));
-      const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      $('new-token').textContent = token;
-      $('record-name').textContent = `_afwd-stats.${name}`;
-      $('record-value').textContent = `v=afwdstats1 h=${await hex(token)}`;
-      $('setup').hidden = false;
-      const stored = save(tokenKey(name), token) && save('afwd-stats-domain', name);
-      $('generated').textContent = !stored
-        ? 'Could not store the token in this browser. Copy it now.'
-        : replaced
-          ? 'Stored in this browser. This replaced the previous token; its DNS record keeps working until you delete it.'
-          : 'Stored in this browser.';
-      loadToken();
-      if (!stored) $('token').value = token;
-    };
-
-    for (const button of document.querySelectorAll('[data-copy]')) {
-      button.onclick = async () => {
-        const label = button.textContent;
-        try {
-          await navigator.clipboard.writeText($(button.dataset.copy).textContent);
-          button.textContent = 'Copied';
-        } catch {
-          button.textContent = 'Copy failed, select the text manually';
-        }
-        setTimeout(() => { button.textContent = label; }, 2000);
-      };
-    }
-
-    const sum = (pairs) => [...pairs.reduce((map, [key, n]) => map.set(key, (map.get(key) || 0) + n), new Map())];
-    const section = (title, rows) => {
-      const heading = document.createElement('h3');
-      heading.textContent = title;
-      const table = document.createElement('table');
-      const max = Math.max(1, ...rows.map(([, n]) => n));
-      for (const [label, n] of rows) {
-        const row = table.insertRow();
-        row.insertCell().textContent = label;
-        row.insertCell().textContent = n;
-        const bar = document.createElement('div');
-        bar.className = 'bar';
-        bar.style.width = `${(100 * n) / max}%`;
-        row.insertCell().append(bar);
-      }
-      $('result').append(heading, rows.length ? table : 'No data yet.');
-    };
-    $('view').onsubmit = async (event) => {
-      event.preventDefault();
-      const name = domain();
-      const token = $('token').value.trim();
-      const result = $('result');
-      if (!name) {
-        $('domain').reportValidity();
-        return;
-      }
-      result.textContent = 'Loading...';
-      let response;
-      try {
-        response = await fetch(`/api/stats/${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } });
-      } catch (error) {
-        result.textContent = `Could not load statistics: ${error.message}`;
-        return;
-      }
-      if (response.status === 401) {
-        result.textContent = 'The token does not match a DNS record for this domain. Check the record, or wait for DNS to update.';
-        return;
-      }
-      if (!response.ok) {
-        result.textContent = `Error ${response.status}`;
-        return;
-      }
-      // A pasted token that works is remembered for next time.
-      save(tokenKey(name), token);
-      save('afwd-stats-domain', name);
-      loadToken();
-      const data = await response.json();
-      result.replaceChildren();
-      section('Hits per day (UTC)', sum(data.hits.map(([hour, , n]) => [new Date(hour * 1000).toISOString().slice(0, 10), n])));
-      section('Status', sum(data.hits.map(([, status, n]) => [status, n])).sort((a, b) => b[1] - a[1]));
-      section('Top paths', data.paths);
-      section('Top referrers', data.referrers);
-    };
-  </script>
-</body>
-</html>
-"#;
-
-const DOMAINS_PAGE: &str = r#"<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Most active domains | AFWD</title>
-    <style>
-        :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-        body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 2rem 1.25rem; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border-bottom: 1px solid #8888; padding: .5rem; text-align: left; }
-        td:first-child { width: 3rem; }
-        td:last-child { text-align: right; white-space: nowrap; }
-    </style>
-</head>
-<body>
-    <p><a href="/">AFWD</a></p>
-    <h1>100 most active domains</h1>
-    <p>Ranked by requests in the last 90 days.</p>
-    <p id="status">Loading...</p>
-    <table hidden>
-        <thead><tr><th>#</th><th>Domain</th><th>Requests</th></tr></thead>
-        <tbody id="domains"></tbody>
-    </table>
-    <script>
-        (async () => {
-            const status = document.getElementById('status');
-            try {
-                const response = await fetch('/api/domains', { cache: 'no-store' });
-                if (!response.ok) throw new Error(`Error ${response.status}`);
-                const domains = await response.json();
-                const body = document.getElementById('domains');
-                domains.forEach(([domain, requests], index) => {
-                    const row = body.insertRow();
-                    row.insertCell().textContent = index + 1;
-                    row.insertCell().textContent = domain;
-                    row.insertCell().textContent = requests.toLocaleString();
-                });
-                document.querySelector('table').hidden = domains.length === 0;
-                status.textContent = domains.length ? '' : 'No active domains yet.';
-            } catch (error) {
-                status.textContent = `Could not load domains: ${error.message}`;
-            }
-        })();
-    </script>
-</body>
-</html>
-"#;
 
 fn request_host(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(HOST)?.to_str().ok()?;

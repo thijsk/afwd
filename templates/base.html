@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AFWD{% endblock %}</title>
+  <style>
+{% include "style.css" %}
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">AFWD</a>
+    <a href="/stats">Statistics</a>
+    <a href="/domains">Most active domains</a>
+  </nav>
+{% block content %}{% endblock %}
+</body>
+</html>

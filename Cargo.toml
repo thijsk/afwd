@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+askama = "0.16"
 axum = "0.8"
 hickory-resolver = "0.25"
 psl = "2.1.253"

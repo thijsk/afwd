@@ -1,0 +1,18 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; --line: #8888; --fill: #8882; --accent: #4a8; --bad: #d33; }
+body { line-height: 1.5; margin: 0 auto; max-width: 58rem; padding: 1.25rem; }
+nav { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; padding-bottom: .75rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+nav a:first-child { font-weight: 700; margin-right: auto; }
+h1 { margin-top: 0; }
+code, pre { font-family: ui-monospace, monospace; }
+pre { overflow-x: auto; padding: 1rem; background: var(--fill); border-radius: .4rem; }
+input, select { font: inherit; }
+input { width: 100%; box-sizing: border-box; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: .4rem .5rem; text-align: left; overflow-wrap: anywhere; }
+.value { display: block; overflow-wrap: anywhere; padding: .5rem; background: var(--fill); border-radius: .4rem; }
+.warning { border: 3px solid var(--bad); border-radius: .4rem; padding: 1rem; font-size: 1.15rem; }
+.bars td:nth-child(2) { text-align: right; white-space: nowrap; }
+.bars td:nth-child(3) { width: 40%; }
+.bar { height: .8rem; min-width: 1px; background: var(--accent); border-radius: .2rem; }
+.ranking td:first-child { width: 3rem; }
+.ranking td:last-child { text-align: right; white-space: nowrap; }
