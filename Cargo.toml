@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 axum = "0.8"
 hickory-resolver = "0.25"
+psl = "2.1.253"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11.0"

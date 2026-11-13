@@ -155,32 +155,14 @@ impl Stats {
     }
 }
 
+/// Groups a host under its registrable domain using the Public Suffix List.
+/// A host the list cannot place (a bare suffix, an IP address) is kept as it is.
 fn registrable_domain(host: &str) -> String {
-    let host = host.trim_matches('.').trim().to_ascii_lowercase();
-    if host.is_empty() {
-        return String::new();
+    let host = host.trim().trim_matches('.').to_ascii_lowercase();
+    match psl::domain_str(&host) {
+        Some(domain) => domain.to_owned(),
+        None => host,
     }
-    let labels = host
-        .split('.')
-        .filter(|label| !label.is_empty())
-        .collect::<Vec<_>>();
-    if labels.len() <= 2 {
-        return labels.join(".");
-    }
-    if labels[labels.len() - 2].len() == 2 {
-        return labels
-            .iter()
-            .skip(labels.len() - 3)
-            .copied()
-            .collect::<Vec<_>>()
-            .join(".");
-    }
-    labels
-        .iter()
-        .skip(labels.len() - 2)
-        .copied()
-        .collect::<Vec<_>>()
-        .join(".")
 }
 
 fn top(db: &Connection, host: &str, kind: &str) -> rusqlite::Result<Vec<(String, i64)>> {
@@ -282,5 +264,24 @@ mod tests {
                 ("example.net".to_owned(), 1),
             ]
         );
+    }
+
+    #[test]
+    fn registrable_domain_follows_the_public_suffix_list() {
+        for (host, expected) in [
+            ("example.com", "example.com"),
+            ("Www.Example.com.", "example.com"),
+            ("shop.example.com.au", "example.com.au"),
+            ("other.com.au", "other.com.au"),
+            ("a.charity.org.uk", "charity.org.uk"),
+            ("www.ah.nl", "ah.nl"),
+            ("www.hp.com", "hp.com"),
+            ("alice.github.io", "alice.github.io"),
+            ("deep.alice.github.io", "alice.github.io"),
+            ("com.au", "com.au"),
+            ("localhost", "localhost"),
+        ] {
+            assert_eq!(super::registrable_domain(host), expected, "{host}");
+        }
     }
 }
