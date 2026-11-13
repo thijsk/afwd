@@ -37,9 +37,21 @@ jobs:
     - name: Run tests
       run: cargo test --locked --all-targets
 
+  licenses:
+    name: Check dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out source
+      uses: actions/checkout@v5
+
+    - name: Run cargo deny
+      uses: EmbarkStudios/cargo-deny-action@v2
+      with:
+        command: check licenses
+
   image:
     name: Build and publish image
-    needs: test
+    needs: [test, licenses]
     runs-on: ubuntu-latest
     permissions:
       contents: read

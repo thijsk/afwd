@@ -68,3 +68,13 @@ Add `127.0.0.1 afwd.nl` to your hosts file. Start the Rust service, then run Cad
 cargo test
 cargo run
 ```
+
+CI also checks that every dependency uses a permissive license, with `cargo deny check licenses` and the allow list in `deny.toml`.
+
+## License
+
+Copyright © 2026 Trilobit.
+
+afwd is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE). If you run a modified version as a network service, the AGPL requires you to offer its source code to the users of that service.
+
+Trilobit may also offer afwd under other terms, including closed source. To keep that possible, contributions are accepted under the Contributor License Agreement in [CONTRIBUTING.md](CONTRIBUTING.md), and dependencies must use permissive licenses.
