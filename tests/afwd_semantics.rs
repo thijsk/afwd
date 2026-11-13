@@ -26,14 +26,46 @@ fn parses_basic_record_with_defaults() {
 }
 
 #[test]
-fn preserves_source_query() {
+fn preserves_source_path_and_query() {
     let config =
         parse_txt_record("v=afwd1 preserve=y type=308 dest=https://www.example.net/").unwrap();
 
     assert_eq!(config.status, 308);
+    for (source, expected) in [
+        ("/", "https://www.example.net/"),
+        ("/query-string/", "https://www.example.net/query-string/"),
+        ("/path/?x=1&y=2", "https://www.example.net/path/?x=1&y=2"),
+        ("/a%20b/c", "https://www.example.net/a%20b/c"),
+        ("/?x=1", "https://www.example.net/?x=1"),
+    ] {
+        assert_eq!(
+            redirect_url(&config, "example.com", source).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn preserved_path_is_appended_to_destination_path() {
+    let with_slash =
+        parse_txt_record("v=afwd1 preserve=y dest=https://www.example.net/base/").unwrap();
+    let without_slash =
+        parse_txt_record("v=afwd1 preserve=y dest=https://www.example.net/base").unwrap();
+
+    for config in [&with_slash, &without_slash] {
+        assert_eq!(
+            redirect_url(config, "example.com", "/a/b?x=1").unwrap(),
+            "https://www.example.net/base/a/b?x=1"
+        );
+        // Dot segments cannot climb out of the destination's base path.
+        assert_eq!(
+            redirect_url(config, "example.com", "/../../secret").unwrap(),
+            "https://www.example.net/base/secret"
+        );
+    }
     assert_eq!(
-        redirect_url(&config, "example.com", "/path/?x=1&y=2").unwrap(),
-        "https://www.example.net/?x=1&y=2"
+        redirect_url(&with_slash, "example.com", "//other.example/x").unwrap(),
+        "https://www.example.net/base//other.example/x"
     );
 }
 
@@ -79,8 +111,8 @@ fn preserve_overrides_append() {
         parse_txt_record("v=afwd1 preserve=y append=y dest=https://www.example.net/").unwrap();
 
     assert_eq!(
-        redirect_url(&config, "example.com", "/?source=1").unwrap(),
-        "https://www.example.net/?source=1"
+        redirect_url(&config, "example.com", "/query-string/?source=1").unwrap(),
+        "https://www.example.net/query-string/?source=1"
     );
 }
 

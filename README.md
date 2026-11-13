@@ -16,6 +16,8 @@ The forwarding domain must point its A/AAAA records at the public service addres
 v=afwd1 dest=https://example.net/ preserve=y type=302
 ```
 
+With `preserve=y` the request path and query string are added to the destination, so `/blog/post?x=1` goes to `https://example.net/blog/post?x=1`. Without it, every request goes to the destination as written.
+
 Set `AFWD_PUBLIC_IPV4` and `AFWD_PUBLIC_IPV6` to comma-separated public addresses. The help page uses these values in its DNS examples. Set `AFWD_HELP_DOMAIN` to change the domain that shows the help page; it defaults to `afwd.nl`.
 
 The help domain also serves `/.well-known/security.txt`, with Trilobit's published contact address (`info@trilobit.nl`) and a rolling one-year expiry.

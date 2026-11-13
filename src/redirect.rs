@@ -6,6 +6,14 @@ pub fn redirect_url(config: &ForwardingConfig, host: &str, source_uri: &str) -> 
     let mut destination = config.destination.clone();
 
     if config.preserve_query {
+        // The source path is already normalised by the parser, so `..` cannot climb out of
+        // the destination's base path.
+        let path = format!(
+            "{}{}",
+            destination.path().trim_end_matches('/'),
+            source.path()
+        );
+        destination.set_path(&path);
         destination.set_query(source.query());
     } else if config.append_domain {
         let domain = url::form_urlencoded::byte_serialize(host.as_bytes()).collect::<String>();
