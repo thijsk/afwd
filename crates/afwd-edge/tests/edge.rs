@@ -60,6 +60,21 @@ async fn forwarding_requires_a_host_header() {
 }
 
 #[tokio::test]
+async fn connect_and_asterisk_targets_are_not_forwarded() {
+    let app = app(DocsConfig::default(), None);
+    for (method, uri) in [("CONNECT", "example.com:443"), ("OPTIONS", "*")] {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("host", "example.com")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{method} {uri}");
+    }
+}
+
+#[tokio::test]
 async fn ip_root_request_returns_the_landing_page_and_is_not_counted() {
     let stats = Stats::open(":memory:").unwrap();
     let response = app(DocsConfig::with_help_domain("afwd.nl"), Some(stats.clone()))

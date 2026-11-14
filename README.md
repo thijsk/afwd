@@ -11,7 +11,7 @@ The service reads `v=afwd1` TXT records and returns HTTP redirects. HTTPS certif
 The service runs as three containers:
 
 - `proxy` runs Caddy. It provides public HTTP and HTTPS access and gets the certificates. It sends the help domain to `site` and every other host to `edge`.
-- `edge` is the forwarding service (`crates/afwd-edge`). It answers Caddy's certificate check: a record with `cert=no` returns `403` and does not receive a certificate.
+- `edge` is the forwarding service (`crates/afwd-edge`). It answers Caddy's certificate check. A name gets a certificate only with a valid record without `cert=no`, when all its A/AAAA records point at the service (if `AFWD_PUBLIC_IPV4`/`AFWD_PUBLIC_IPV6` or the target host give addresses to compare against), and while its registrable domain has had fewer than 20 new certificate names in the past 7 days. The cap stops a wildcard record from letting anyone use up the domain's certificate limits; names that already forwarded traffic before the cap existed do not count.
 - `site` is the help site (`crates/afwd-site`): the landing page, docs, checker and statistics.
 
 `edge` and `site` listen on port `9000` inside the container network and are not published. Shared code lives in `crates/afwd-core`. `deploy/compose.yml` builds and runs all three.
@@ -30,9 +30,11 @@ Each forwarding configuration is a TXT record beginning with:
 v=afwd1 dest=https://example.net/ preserve=y type=302
 ```
 
-The service uses the first `v=afwd1` record it finds at `_afwd.<host>`, at `<host>` itself (as in the afwd.uk specification, following CNAMEs), and then at `_afwd.<target>` and `<target>` for the target of a CNAME at `<host>`. The `_afwd.` name is our extension: a name with a CNAME cannot have its own TXT record, so `go.example.com CNAME fwd.afwd.nl` is configured at `_afwd.go.example.com`. If the `_afwd.` lookup fails but the record on the name is found, that record is used, so existing domains keep working.
+The service uses the first `v=afwd1` record it finds at `_afwd.<host>`, at `<host>` itself (following CNAMEs), and then at `_afwd.<target>` for the target of a CNAME at `<host>`. A name with a CNAME cannot have its own TXT record, so `go.example.com CNAME fwd.afwd.nl` is configured at `_afwd.go.example.com`. If the `_afwd.` lookup gets SERVFAIL or REFUSED but the record on the name is found, that record is used for redirects, but not for certificates. Two `v=afwd1` records at the same name make the record invalid.
 
-With `preserve=y` the request path and query string are added to the destination, so `/blog/post?x=1` goes to `https://example.net/blog/post?x=1`. Without it, every request goes to the destination as written.
+The full behaviour is specified in [`spec/afwd-spec.txt`](spec/afwd-spec.txt), an RFC-style specification for anyone who builds a compatible service. The help site lays it out in pages and serves it at `/spec` (HTML) and `/spec.txt` (plain text). The spec tests in `crates/afwd-site/src/spec.rs` check the layout and that every section reference and citation resolves.
+
+With `preserve=y` the request path and query string are added to the destination, so `/blog/post?x=1` goes to `https://example.net/blog/post?x=1`. A query in the destination is kept and comes first: with `dest=https://example.net/?ref=a`, the same request goes to `https://example.net/blog/post?ref=a&x=1`. Without `preserve`, every request goes to the destination as written. Permanent redirects (301, 308) carry `Cache-Control: max-age=3600`, so browsers pick up changes to the record within an hour.
 
 Set `AFWD_PUBLIC_IPV4` and `AFWD_PUBLIC_IPV6` to comma-separated public addresses. The help page uses these values in its DNS examples. Set `AFWD_HELP_DOMAIN` to change the domain that shows the help page; it defaults to `afwd.nl`.
 
@@ -61,7 +63,7 @@ To test locally without HTTPS, set `AFWD_HTTP_PORT` (for example `8080`) and sen
 
 ## Usage statistics
 
-The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/`, `/docs` and `/stats` on the help domain, but not `/domains`, the `/api/` endpoints, or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days. The public `/domains` page lists the 100 domains with the most requests during that period, excluding the help domain.
+The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/`, `/docs`, `/spec` and `/stats` on the help domain, but not `/domains`, the `/api/` endpoints, or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. It counts at most 20 names per registrable domain each hour, so a wildcard record cannot give every made-up subdomain counters of its own. The statistics are kept for 90 days. The public `/domains` page lists the 100 domains with the most requests during that period, excluding the help domain.
 
 The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). `edge` and `site` share the `afwd-stats` volume: `edge` counts forwarded requests, `site` counts help pages and reads the statistics.
 

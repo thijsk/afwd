@@ -3,7 +3,7 @@
 {% block description %}How to configure AFWD web forwarding: DNS records, TXT options, redirect status codes, HTTPS and statistics.{% endblock %}
 {% block content %}
   <h1>Documentation</h1>
-  <p class="lead">Everything AFWD does is configured in your DNS. The <a href="/#setup">setup tool</a> builds the records for you; this page explains every option.</p>
+  <p class="lead">Everything AFWD does is configured in your DNS. The <a href="/#setup">setup tool</a> builds the records for you; this page explains every option. The formal <a href="/spec">specification</a> defines the exact behaviour, for anyone who builds a compatible service.</p>
 
   <h2>DNS setup</h2>
   <p>You add two things at your DNS provider: a record that points your domain at AFWD, and a TXT record that says where to forward to. Replace <code>example.com</code> with your domain.</p>

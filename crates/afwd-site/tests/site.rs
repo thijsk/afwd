@@ -76,6 +76,7 @@ async fn stats_api_rejects_unknown_token() {
     .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
 }
 
 #[tokio::test]

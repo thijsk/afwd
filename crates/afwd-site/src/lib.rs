@@ -2,13 +2,16 @@
 //! sends only the help domain here, so the routes do not look at the Host header.
 
 pub mod check;
+pub mod spec;
 
 use std::{sync::Arc, time::Duration as StdDuration};
 
 use axum::{
     extract::{Path, State},
     http::{
-        header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, REFERER, RETRY_AFTER},
+        header::{
+            AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, REFERER, RETRY_AFTER, WWW_AUTHENTICATE,
+        },
         HeaderMap, StatusCode,
     },
     response::{IntoResponse, Response},
@@ -52,6 +55,8 @@ pub fn router(dns: DnsConfig, docs: DocsConfig, stats: Option<Stats>) -> Router 
     Router::new()
         .route("/", get(landing))
         .route("/docs", get(docs_page))
+        .route("/spec", get(spec_page))
+        .route("/spec.txt", get(spec_text))
         .route("/stats", get(stats_page))
         .route("/domains", get(domains_page))
         .route("/api/summary", get(summary_api))
@@ -85,6 +90,20 @@ async fn landing(State(state): AppState, headers: HeaderMap) -> Response {
 async fn docs_page(State(state): AppState, headers: HeaderMap) -> Response {
     count(&state, "/docs", &headers);
     respond(StatusCode::OK, pages::Docs::new(&state.docs))
+}
+
+async fn spec_page(State(state): AppState, headers: HeaderMap) -> Response {
+    count(&state, "/spec", &headers);
+    respond(
+        StatusCode::OK,
+        pages::SpecPage {
+            html: spec::SPEC.html(),
+        },
+    )
+}
+
+async fn spec_text() -> Response {
+    plain_text(spec::SPEC.text())
 }
 
 async fn stats_page(State(state): AppState, headers: HeaderMap) -> Response {
@@ -181,6 +200,11 @@ async fn check_domain(state: &SiteState, domain: &str) -> Response {
     }
 }
 
+/// A 401 must say which authentication scheme to use (RFC 9110, Section 11.6.1).
+fn unauthorized() -> Response {
+    (StatusCode::UNAUTHORIZED, [(WWW_AUTHENTICATE, "Bearer")]).into_response()
+}
+
 async fn stats_api(
     State(state): AppState,
     headers: HeaderMap,
@@ -193,9 +217,11 @@ async fn stats_api(
     let Some(token) = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|value| value.split_once(' '))
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("Bearer"))
+        .map(|(_, token)| token.trim())
     else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return unauthorized();
     };
     let hash = Sha256::digest(token.as_bytes())
         .iter()
@@ -203,7 +229,7 @@ async fn stats_api(
         .collect::<String>();
     // Plain comparison is fine: the expected hash is public in DNS.
     if !state.dns.stats_hashes(&domain).await.contains(&hash) {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return unauthorized();
     }
     match stats.query(domain).await {
         Ok(report) => ([(CACHE_CONTROL, "no-store")], Json(report)).into_response(),

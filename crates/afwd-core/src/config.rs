@@ -10,7 +10,7 @@ pub struct ForwardingConfig {
     pub request_certificate: bool,
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ConfigError {
     #[error("TXT record does not start with v=afwd1")]
     UnsupportedVersion,
@@ -22,10 +22,15 @@ pub enum ConfigError {
     InvalidValue(String),
     #[error("unsupported token {0}")]
     UnsupportedToken(String),
+    #[error("there is more than one v=afwd1 TXT record")]
+    MultipleRecords,
+    #[error("TXT record is not valid UTF-8")]
+    InvalidEncoding,
 }
 
 pub fn parse_txt_record(record: &str) -> Result<ForwardingConfig, ConfigError> {
-    let mut tokens = record.split_whitespace();
+    // Only space and tab separate tokens; any other character is part of a token.
+    let mut tokens = record.split([' ', '\t']).filter(|token| !token.is_empty());
     if tokens.next() != Some("v=afwd1") {
         return Err(ConfigError::UnsupportedVersion);
     }

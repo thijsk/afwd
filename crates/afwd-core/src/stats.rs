@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -9,10 +9,19 @@ use rusqlite::{params, Connection};
 use url::Url;
 
 type Key = (String, i64, &'static str, String);
+/// The hour, and the names counted in it per registrable domain.
+type HostsThisHour = (i64, HashMap<String, HashSet<String>>);
 
 // ponytail: drops counts once the flush window is full; per-host caps if one host starves others
 const MAX_PENDING: usize = 10_000;
 const RETENTION_SECS: i64 = 90 * 24 * 3600;
+/// Names counted per registrable domain per hour. A wildcard record makes every made-up
+/// subdomain valid, and each would otherwise get counters of its own.
+const MAX_HOSTS_PER_DOMAIN: usize = 20;
+/// New names per registrable domain that may get a certificate in any week. A wildcard
+/// would otherwise let anyone use up the domain's certificate rate limits.
+const NEW_CERTIFICATES_PER_DOMAIN: i64 = 20;
+const CERTIFICATE_WINDOW_SECS: i64 = 7 * 24 * 3600;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS counts (
@@ -25,6 +34,12 @@ CREATE TABLE IF NOT EXISTS counts (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS counts_hour ON counts (hour);
 CREATE INDEX IF NOT EXISTS counts_status ON counts (host, n) WHERE kind = 'status';
+CREATE TABLE IF NOT EXISTS certificate_names (
+    host TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    admitted INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS certificate_names_domain ON certificate_names (domain, admitted);
 ";
 
 // Caps distinct paths and referrers at 100 per host per hour so scanners cannot grow the table.
@@ -40,6 +55,8 @@ ON CONFLICT (host, hour, kind, value) DO UPDATE SET n = counts.n + excluded.n
 #[derive(Clone)]
 pub struct Stats {
     pending: Arc<Mutex<HashMap<Key, u64>>>,
+    /// The names counted this hour, per registrable domain.
+    hosts: Arc<Mutex<HostsThisHour>>,
     db: Arc<Mutex<Connection>>,
 }
 
@@ -61,16 +78,75 @@ impl Stats {
         let db = Connection::open(path)?;
         db.pragma_update(None, "journal_mode", "WAL")?;
         db.busy_timeout(Duration::from_secs(5))?;
+        let fresh = db.query_row(
+            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE name = 'certificate_names'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
         db.execute_batch(SCHEMA)?;
+        if fresh {
+            // Names that already forward traffic got their certificates before the cap
+            // existed; they do not count as new.
+            let hosts = db
+                .prepare("SELECT DISTINCT host FROM counts WHERE kind = 'status'")?
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut insert = db.prepare(
+                "INSERT OR IGNORE INTO certificate_names (host, domain, admitted) VALUES (?1, ?2, 0)",
+            )?;
+            for host in hosts {
+                insert.execute(params![host, registrable_domain(&host)])?;
+            }
+        }
         Ok(Self {
             pending: Arc::default(),
+            hosts: Arc::default(),
             db: Arc::new(Mutex::new(db)),
         })
+    }
+
+    /// Whether `host` may get a certificate: it had one before, or its registrable
+    /// domain has had fewer than [`NEW_CERTIFICATES_PER_DOMAIN`] new names this week.
+    pub async fn admit_certificate(&self, host: &str) -> rusqlite::Result<bool> {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let domain = registrable_domain(&host);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let db = db.lock().unwrap();
+            let known = db
+                .prepare_cached("SELECT 1 FROM certificate_names WHERE host = ?1")?
+                .exists([&host])?;
+            if known {
+                return Ok(true);
+            }
+            let recent: i64 = db.query_row(
+                "SELECT COUNT(*) FROM certificate_names WHERE domain = ?1 AND admitted > ?2",
+                params![domain, now - CERTIFICATE_WINDOW_SECS],
+                |row| row.get(0),
+            )?;
+            if recent >= NEW_CERTIFICATES_PER_DOMAIN {
+                return Ok(false);
+            }
+            db.execute(
+                "INSERT OR IGNORE INTO certificate_names (host, domain, admitted) VALUES (?1, ?2, ?3)",
+                params![host, domain, now],
+            )?;
+            Ok(true)
+        })
+        .await
+        .expect("certificate admission task panicked")
     }
 
     pub fn record(&self, host: &str, status: &str, path: &str, referer: Option<&str>) {
         let host = host.to_ascii_lowercase();
         let hour = hour_now();
+        if !self.counts_host(&host, hour) {
+            return;
+        }
         let mut pending = self.pending.lock().unwrap();
         if pending.len() >= MAX_PENDING {
             return;
@@ -87,6 +163,24 @@ impl Stats {
         {
             *pending.entry((host, hour, "ref", referrer)).or_default() += 1;
         }
+    }
+
+    /// Whether `host` may be counted this hour: it already is, or its registrable domain
+    /// has fewer than [`MAX_HOSTS_PER_DOMAIN`] names counted.
+    fn counts_host(&self, host: &str, hour: i64) -> bool {
+        let mut hosts = self.hosts.lock().unwrap();
+        if hosts.0 != hour {
+            *hosts = (hour, HashMap::new());
+        }
+        let names = hosts.1.entry(registrable_domain(host)).or_default();
+        if names.contains(host) {
+            return true;
+        }
+        if names.len() >= MAX_HOSTS_PER_DOMAIN {
+            return false;
+        }
+        names.insert(host.to_owned());
+        true
     }
 
     pub async fn flush(&self) -> rusqlite::Result<()> {
@@ -222,7 +316,79 @@ fn hour_now() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::Stats;
+    use super::{Stats, MAX_HOSTS_PER_DOMAIN, NEW_CERTIFICATES_PER_DOMAIN};
+
+    #[tokio::test]
+    async fn names_counted_per_domain_are_capped() {
+        let stats = Stats::open(":memory:").unwrap();
+        for index in 0..MAX_HOSTS_PER_DOMAIN + 5 {
+            stats.record(&format!("x{index}.example.com"), "302", "/", None);
+        }
+        // Names that are already counted keep counting.
+        stats.record("x0.example.com", "302", "/", None);
+        stats.record("other.example", "302", "/", None);
+        stats.flush().await.unwrap();
+
+        let counted = |host: &str| {
+            let stats = stats.clone();
+            let host = host.to_owned();
+            async move { !stats.query(host).await.unwrap().hits.is_empty() }
+        };
+        assert!(counted("x0.example.com").await);
+        assert!(counted(&format!("x{}.example.com", MAX_HOSTS_PER_DOMAIN - 1)).await);
+        assert!(!counted(&format!("x{}.example.com", MAX_HOSTS_PER_DOMAIN)).await);
+        assert!(counted("other.example").await);
+        let report = stats.query("x0.example.com".to_owned()).await.unwrap();
+        assert_eq!(report.hits[0].2, 2);
+    }
+
+    #[tokio::test]
+    async fn new_certificate_names_per_domain_are_capped() {
+        let stats = Stats::open(":memory:").unwrap();
+        for index in 0..NEW_CERTIFICATES_PER_DOMAIN {
+            assert!(stats
+                .admit_certificate(&format!("x{index}.example.com"))
+                .await
+                .unwrap());
+        }
+        assert!(!stats
+            .admit_certificate("one-too-many.example.com")
+            .await
+            .unwrap());
+        // A name that was admitted before stays admitted, and other domains are separate.
+        assert!(stats.admit_certificate("X0.example.com.").await.unwrap());
+        assert!(stats.admit_certificate("www.example.net").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn names_that_already_forward_traffic_are_not_new() {
+        let path = std::env::temp_dir().join(format!("afwd-cert-seed-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            // A database from before the certificate cap: counts, but no admissions.
+            let db = rusqlite::Connection::open(&path).unwrap();
+            db.execute_batch(
+                "CREATE TABLE counts (host TEXT NOT NULL, hour INTEGER NOT NULL, kind TEXT NOT NULL,
+                 value TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (host, hour, kind, value)) WITHOUT ROWID;",
+            )
+            .unwrap();
+            for index in 0..NEW_CERTIFICATES_PER_DOMAIN + 5 {
+                db.execute(
+                    "INSERT INTO counts VALUES (?1, 0, 'status', '302', 1)",
+                    [format!("x{index}.example.com")],
+                )
+                .unwrap();
+            }
+        }
+        let stats = Stats::open(path.to_str().unwrap()).unwrap();
+        assert!(stats
+            .admit_certificate(&format!("x{}.example.com", NEW_CERTIFICATES_PER_DOMAIN + 4))
+            .await
+            .unwrap());
+        assert!(stats.admit_certificate("new.example.com").await.unwrap());
+        drop(stats);
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[tokio::test]
     async fn instances_sharing_a_database_sum_their_counts() {

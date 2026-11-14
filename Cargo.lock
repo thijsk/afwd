@@ -28,6 +28,7 @@ dependencies = [
  "serde",
  "tokio",
  "tower",
+ "tracing",
 ]
 
 [[package]]

@@ -163,3 +163,13 @@ th { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color:
 .checks .good strong::before { content: "✓  "; color: var(--good); }
 .checks .bad strong::before { content: "✗  "; color: var(--bad); }
 .checks .unknown strong::before { content: "!  "; color: var(--warn); }
+
+/* Specification: RFC-style pages */
+.spec-meta { color: var(--muted); }
+.spec { overflow-x: auto; margin-top: 2rem; }
+.spec .spec-page { width: max-content; margin: 0 0 2rem; padding: 0 0 2rem; background: none; border-radius: 0; overflow: visible; font-size: .85rem; line-height: 1.3; border-bottom: 1px dashed var(--line); }
+.spec .spec-page:last-child { border-bottom: 0; }
+.spec-running { color: var(--muted); }
+.spec-heading { font-weight: 700; }
+.spec-heading a { color: inherit; text-decoration: none; }
+.spec-heading a:hover { text-decoration: underline; }

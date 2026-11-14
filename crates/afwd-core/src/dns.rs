@@ -1,6 +1,10 @@
 use std::{net::IpAddr, time::Duration};
 
-use hickory_resolver::proto::rr::{RData, RecordType};
+use hickory_resolver::proto::{
+    op::ResponseCode,
+    rr::{RData, RecordType},
+    ProtoErrorKind,
+};
 use hickory_resolver::{
     config::ResolverConfig, name_server::TokioConnectionProvider, TokioResolver,
 };
@@ -21,6 +25,10 @@ pub enum ResolveError {
     Config(#[from] ConfigError),
     #[error("no AFWD TXT record found")]
     NotFound,
+    /// The record was found only because the `_afwd.` lookup failed; good enough to
+    /// redirect, but not to request a certificate.
+    #[error("the _afwd lookup failed")]
+    Incomplete,
 }
 
 /// A `v=afwd1` TXT record and the name it was found at.
@@ -28,6 +36,21 @@ pub enum ResolveError {
 pub struct FoundRecord {
     pub name: String,
     pub text: String,
+    /// Why the record is invalid before it is parsed: there is more than one, or it is
+    /// not UTF-8.
+    pub problem: Option<ConfigError>,
+    /// Found on the name itself after the `_afwd.` lookup failed with SERVFAIL or
+    /// REFUSED (step 3 of the lookup procedure).
+    pub fallback: bool,
+}
+
+impl FoundRecord {
+    pub fn config(&self) -> Result<ForwardingConfig, ConfigError> {
+        match &self.problem {
+            Some(problem) => Err(problem.clone()),
+            None => parse_txt_record(&self.text),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -56,7 +79,23 @@ impl DnsConfig {
             .find_record(host)
             .await?
             .ok_or(ResolveError::NotFound)?;
-        Ok(parse_txt_record(&found.text)?)
+        Ok(found.config()?)
+    }
+
+    /// Like [`resolve`](Self::resolve), but a record found only after the `_afwd.`
+    /// lookup failed is not enough: a certificate is a lasting decision.
+    pub async fn resolve_for_certificate(
+        &self,
+        host: &str,
+    ) -> Result<ForwardingConfig, ResolveError> {
+        let found = self
+            .find_record(host)
+            .await?
+            .ok_or(ResolveError::NotFound)?;
+        if found.fallback {
+            return Err(ResolveError::Incomplete);
+        }
+        Ok(found.config()?)
     }
 
     /// The `v=afwd1` TXT record that configures `host`. See [`find_record`].
@@ -116,7 +155,7 @@ impl DnsConfig {
 
 /// The DNS lookups [`find_record`] needs, so the search order can be tested without DNS.
 trait Records {
-    /// The first `v=afwd1` TXT record at `name`, following CNAMEs.
+    /// The `v=afwd1` TXT record at `name`, following CNAMEs.
     async fn txt(&self, name: &str) -> Result<Option<FoundRecord>, hickory_resolver::ResolveError>;
     /// The targets of the CNAME records at `name`.
     async fn cnames(&self, name: &str) -> Result<Vec<String>, hickory_resolver::ResolveError>;
@@ -128,22 +167,25 @@ impl Records for DnsConfig {
             return Ok(None);
         };
         // The answer also holds any CNAMEs that were followed; the owner of the TXT
-        // record itself is where the configuration lives.
-        Ok(records.as_lookup().record_iter().find_map(|record| {
-            let RData::TXT(txt) = record.data() else {
-                return None;
-            };
-            let bytes = txt
-                .txt_data()
-                .iter()
-                .flat_map(|chunk| chunk.iter().copied())
-                .collect::<Vec<_>>();
-            let text = String::from_utf8(bytes).ok()?;
-            text.starts_with("v=afwd1").then(|| FoundRecord {
-                name: display_name(&record.name().to_string()),
-                text,
+        // records is where the configuration lives.
+        let mut owner = None;
+        let texts = records
+            .as_lookup()
+            .record_iter()
+            .filter_map(|record| {
+                let RData::TXT(txt) = record.data() else {
+                    return None;
+                };
+                owner.get_or_insert_with(|| display_name(&record.name().to_string()));
+                Some(
+                    txt.txt_data()
+                        .iter()
+                        .flat_map(|chunk| chunk.iter().copied())
+                        .collect::<Vec<_>>(),
+                )
             })
-        }))
+            .collect::<Vec<_>>();
+        Ok(owner.and_then(|owner| afwd_record(owner, texts)))
     }
 
     async fn cnames(&self, name: &str) -> Result<Vec<String>, hickory_resolver::ResolveError> {
@@ -163,10 +205,12 @@ impl Records for DnsConfig {
 /// Finds the `v=afwd1` TXT record for `host`. The first of these wins:
 ///
 /// 1. `_afwd.<host>`
-/// 2. `<host>` itself, as in the afwd1 specification. When `host` is a CNAME, the
-///    resolver follows it, so `www CNAME example.com` uses the record of `example.com`.
-/// 3. `_afwd.<target>` and `<target>` for the target of a CNAME at `host`. This is how
+/// 2. `<host>` itself. When `host` is a CNAME, the resolver follows it, so
+///    `www CNAME example.com` uses the record of `example.com`.
+/// 3. `_afwd.<target>` for the target of a CNAME at `host`. This is how
 ///    `*.example.com CNAME example.com` finds a record kept at `_afwd.example.com`.
+///
+/// This is Section 4.2 of the specification (`spec/afwd-spec.txt`).
 async fn find_record<R: Records>(
     records: &R,
     host: &str,
@@ -176,10 +220,12 @@ async fn find_record<R: Records>(
     let (own, direct) = tokio::join!(records.txt(&underscore), records.txt(host));
     match (own, direct) {
         (Ok(Some(found)), _) => return Ok(Some(found)),
-        // A record on the name keeps working when only the `_afwd.` lookup fails, so a
-        // DNS server that mishandles underscore names cannot break existing domains.
-        (Err(error), Ok(Some(found))) => {
+        // A record on the name keeps working when a DNS server answers the `_afwd.`
+        // query with SERVFAIL or REFUSED, as some mishandle underscore names. A timeout
+        // may be temporary, so it does not count.
+        (Err(error), Ok(Some(mut found))) if is_server_failure(&error) => {
             tracing::debug!(%error, host, "_afwd lookup failed; using the record on the name");
+            found.fallback = true;
             return Ok(Some(found));
         }
         (Ok(None), Ok(Some(found))) => return Ok(Some(found)),
@@ -187,11 +233,10 @@ async fn find_record<R: Records>(
         (Ok(None), Ok(None)) => {}
     }
 
+    // The TXT query for `host` already followed its CNAME, so only `_afwd.<target>` is
+    // left to check.
     for target in records.cnames(host).await? {
         if let Some(found) = records.txt(&format!("{RECORD_PREFIX}{target}")).await? {
-            return Ok(Some(found));
-        }
-        if let Some(found) = records.txt(&target).await? {
             return Ok(Some(found));
         }
     }
@@ -208,14 +253,64 @@ fn display_name(name: &str) -> String {
     name.trim_end_matches('.').to_ascii_lowercase()
 }
 
-/// An answer saying the name or record type does not exist is not a DNS failure:
-/// it means there is no AFWD record here. Timeouts and server failures stay errors.
+/// The AFWD record among the TXT records at `owner`: the one whose first token is
+/// exactly `v=afwd1`. More than one, or one that is not UTF-8, makes it invalid.
+fn afwd_record(owner: String, texts: Vec<Vec<u8>>) -> Option<FoundRecord> {
+    let mut matches = texts.into_iter().filter(|text| is_afwd_record(text));
+    let first = matches.next()?;
+    let problem = if matches.next().is_some() {
+        Some(ConfigError::MultipleRecords)
+    } else if std::str::from_utf8(&first).is_err() {
+        Some(ConfigError::InvalidEncoding)
+    } else {
+        None
+    };
+    Some(FoundRecord {
+        name: owner,
+        text: String::from_utf8_lossy(&first).into_owned(),
+        problem,
+        fallback: false,
+    })
+}
+
+/// `v=afwd1` followed by a space, a tab, or nothing: `v=afwd10` is another version.
+fn is_afwd_record(text: &[u8]) -> bool {
+    text.strip_prefix(b"v=afwd1")
+        .is_some_and(|rest| matches!(rest.first(), None | Some(b' ' | b'\t')))
+}
+
+/// The response code of a DNS answer that held no records.
+fn response_code(error: &hickory_resolver::ResolveError) -> Option<ResponseCode> {
+    match error.proto()?.kind() {
+        ProtoErrorKind::NoRecordsFound { response_code, .. } => Some(*response_code),
+        _ => None,
+    }
+}
+
+/// A DNS server answered, but with SERVFAIL or REFUSED.
+fn is_server_failure(error: &hickory_resolver::ResolveError) -> bool {
+    matches!(
+        response_code(error),
+        Some(ResponseCode::ServFail | ResponseCode::Refused)
+    )
+}
+
+/// NXDOMAIN and NODATA answers mean there is no record here; they are not failures.
+/// The resolver reports SERVFAIL and REFUSED the same way, so the response code
+/// decides. Timeouts and server failures stay errors.
 fn found<T>(
     result: Result<T, hickory_resolver::ResolveError>,
 ) -> Result<Option<T>, hickory_resolver::ResolveError> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(error) if error.is_no_records_found() => Ok(None),
+        Err(error)
+            if matches!(
+                response_code(&error),
+                Some(ResponseCode::NXDomain | ResponseCode::NoError)
+            ) =>
+        {
+            Ok(None)
+        }
         Err(error) => Err(error),
     }
 }
@@ -228,7 +323,8 @@ mod tests {
 
     use std::collections::{HashMap, HashSet};
 
-    use super::{find_record, found, FoundRecord, Records};
+    use super::{afwd_record, find_record, found, FoundRecord, Records};
+    use crate::config::ConfigError;
 
     fn negative_answer(code: ResponseCode) -> hickory_resolver::ResolveError {
         ProtoError::nx_error(Box::new(Query::new()), None, None, None, code, true, None).into()
@@ -243,6 +339,53 @@ mod tests {
     }
 
     #[test]
+    fn servfail_and_refused_are_dns_failures() {
+        for code in [ResponseCode::ServFail, ResponseCode::Refused] {
+            assert!(found::<()>(Err(negative_answer(code))).is_err(), "{code:?}");
+        }
+    }
+
+    fn texts(texts: &[&[u8]]) -> Vec<Vec<u8>> {
+        texts.iter().map(|text| text.to_vec()).collect()
+    }
+
+    #[test]
+    fn the_version_tag_must_be_a_whole_token() {
+        let owner = || "example.com".to_owned();
+        assert!(afwd_record(owner(), texts(&[b"v=afwd10 dest=https://x/"])).is_none());
+        assert!(afwd_record(owner(), texts(&[b"v=afwd1.1 dest=https://x/"])).is_none());
+        assert!(afwd_record(owner(), texts(&[b"v=spf1 -all"])).is_none());
+        for text in [
+            &b"v=afwd1 dest=https://x/"[..],
+            b"v=afwd1\tdest=https://x/",
+            b"v=afwd1",
+        ] {
+            assert!(afwd_record(owner(), texts(&[text])).is_some());
+        }
+    }
+
+    #[test]
+    fn more_than_one_record_or_invalid_utf8_makes_the_record_invalid() {
+        let owner = || "example.com".to_owned();
+        let found = afwd_record(
+            owner(),
+            texts(&[
+                b"v=afwd1 dest=https://a.example/",
+                b"v=spf1 -all",
+                b"v=afwd1 dest=https://b.example/",
+            ]),
+        )
+        .unwrap();
+        assert_eq!(found.config(), Err(ConfigError::MultipleRecords));
+
+        let found = afwd_record(owner(), texts(&[b"v=afwd1 dest=https://a.example/\xff"])).unwrap();
+        assert_eq!(found.config(), Err(ConfigError::InvalidEncoding));
+
+        let found = afwd_record(owner(), texts(&[b"v=afwd1 dest=https://a.example/"])).unwrap();
+        assert!(found.config().is_ok());
+    }
+
+    #[test]
     fn other_dns_errors_stay_failures() {
         let error: hickory_resolver::ResolveError = ProtoError::from("timed out").into();
         assert!(found::<()>(Err(error)).is_err());
@@ -253,7 +396,10 @@ mod tests {
     struct Zone {
         txt: HashMap<&'static str, &'static str>,
         cname: HashMap<&'static str, &'static str>,
-        failing: HashSet<&'static str>,
+        /// Names whose TXT query gets SERVFAIL.
+        servfail: HashSet<&'static str>,
+        /// Names whose TXT query times out.
+        timeout: HashSet<&'static str>,
     }
 
     impl Records for Zone {
@@ -263,14 +409,14 @@ mod tests {
         ) -> Result<Option<FoundRecord>, hickory_resolver::ResolveError> {
             let mut name = name.to_owned();
             for _ in 0..8 {
-                if self.failing.contains(name.as_str()) {
+                if self.servfail.contains(name.as_str()) {
+                    return Err(negative_answer(ResponseCode::ServFail));
+                }
+                if self.timeout.contains(name.as_str()) {
                     return Err(ProtoError::from("timed out").into());
                 }
                 if let Some(text) = self.txt.get(name.as_str()) {
-                    return Ok(text.starts_with("v=afwd1").then(|| FoundRecord {
-                        name: name.clone(),
-                        text: (*text).to_owned(),
-                    }));
+                    return Ok(afwd_record(name.clone(), vec![text.as_bytes().to_vec()]));
                 }
                 match self.cname.get(name.as_str()) {
                     Some(target) => name = (*target).to_owned(),
@@ -389,23 +535,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failing_underscore_lookup_does_not_break_a_record_on_the_name() {
+    async fn servfail_on_the_underscore_name_falls_back_to_the_record_on_the_name() {
         let zone = Zone {
             txt: HashMap::from([("example.com", A)]),
-            failing: HashSet::from(["_afwd.example.com"]),
+            servfail: HashSet::from(["_afwd.example.com"]),
             ..Zone::default()
         };
-        assert_eq!(lookup(&zone, "example.com").await, at("example.com", A));
+        let found = find_record(&zone, "example.com").await.unwrap().unwrap();
+        assert_eq!(
+            (found.name.as_str(), found.text.as_str()),
+            ("example.com", A)
+        );
+        // Good enough to redirect, but marked so no certificate is requested.
+        assert!(found.fallback);
 
         let zone = Zone {
-            failing: HashSet::from(["_afwd.example.com"]),
+            servfail: HashSet::from(["_afwd.example.com"]),
             ..Zone::default()
         };
         assert!(find_record(&zone, "example.com").await.is_err());
+    }
 
+    #[tokio::test]
+    async fn a_timeout_on_the_underscore_name_fails_the_lookup() {
+        let zone = Zone {
+            txt: HashMap::from([("example.com", A)]),
+            timeout: HashSet::from(["_afwd.example.com"]),
+            ..Zone::default()
+        };
+        assert!(find_record(&zone, "example.com").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_invalid_underscore_record_is_not_replaced_by_the_record_on_the_name() {
+        let zone = Zone {
+            txt: HashMap::from([
+                ("example.com", A),
+                ("_afwd.example.com", "v=afwd1 preserve=y"),
+            ]),
+            ..Zone::default()
+        };
+        let found = find_record(&zone, "example.com").await.unwrap().unwrap();
+        assert_eq!(found.name, "_afwd.example.com");
+        assert!(found.config().is_err());
+    }
+
+    #[tokio::test]
+    async fn failing_record_on_the_name_does_not_hide_the_underscore_record() {
         let zone = Zone {
             txt: HashMap::from([("_afwd.example.com", A)]),
-            failing: HashSet::from(["example.com"]),
+            timeout: HashSet::from(["example.com"]),
             ..Zone::default()
         };
         assert_eq!(

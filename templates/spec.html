@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Specification | AFWD{% endblock %}
+{% block description %}The AFWD specification (afwd-spec-01): the record format, the lookup procedure and the behaviour of a forwarding service, in RFC style.{% endblock %}
+{% block content %}
+  <h1>Specification</h1>
+  <p class="lead">This is the formal definition of AFWD: the record format, how a service finds the record, and how it answers requests. It is written for people who build their own forwarding service or a tool that reads AFWD records. If you just want to forward a domain, the <a href="/#setup">setup tool</a> and the <a href="/docs">documentation</a> are all you need.</p>
+  <p class="spec-meta">afwd-spec-01 · November 2026 · <a href="/spec.txt">Plain text</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p>
+  <div class="spec">
+{{ html|safe }}
+  </div>
+{% endblock %}

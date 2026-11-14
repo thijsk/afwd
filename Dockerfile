@@ -12,6 +12,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY templates ./templates
+COPY spec ./spec
 
 RUN cargo build --release --locked --bins
 

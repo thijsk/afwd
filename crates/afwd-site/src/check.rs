@@ -4,7 +4,7 @@ use std::net::IpAddr;
 
 use serde::Serialize;
 
-use afwd_core::{config::parse_txt_record, dns::DnsConfig, redirect::redirect_url};
+use afwd_core::{dns::DnsConfig, redirect::redirect_url};
 
 pub const SAMPLE_PATH: &str = "/blog/post?x=1";
 
@@ -84,12 +84,12 @@ pub async fn check(
         addresses,
         cname: cname?,
         record: record.as_ref().map(|found| found.text.clone()),
-        record_name: record.map(|found| found.name),
+        record_name: record.as_ref().map(|found| found.name.clone()),
         error: None,
         redirect: None,
         certificate: None,
     };
-    match result.record.as_deref().map(parse_txt_record) {
+    match record.map(|found| found.config()) {
         None => {}
         Some(Err(error)) => result.error = Some(error.to_string()),
         Some(Ok(config)) => {

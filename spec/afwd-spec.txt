@@ -1,0 +1,962 @@
+%% The source of the AFWD specification. The help site paginates it in RFC style
+%% and serves it at /spec.txt (plain text) and /spec (HTML).
+%%
+%% Conventions: body text is indented three spaces and at most 72 characters
+%% wide. Section headings start in column 0. The {{toc}} line becomes the table
+%% of contents. Lines starting with %% are not part of the document.
+%%
+%% header-left: afwd-spec-01
+%% header-center: AFWD Web Forwarding
+%% header-right: November 2026
+%% footer-left: Kroesbergen
+%% footer-center: Informational
+AFWD Specification                                        T. Kroesbergen
+Document: afwd-spec-01                                       Trilobit BV
+Category: Informational                                    November 2026
+
+
+                AFWD: Web Forwarding Configured in the DNS
+
+Abstract
+
+   This document specifies AFWD, a way for the owner of a domain name to
+   forward web requests for that name to another URL by publishing a DNS
+   TXT record.  The name points at an AFWD service, which reads the
+   record and answers each HTTP request with a redirect to the URL that
+   the record names.  The service keeps no configuration of its own for
+   the name.  The document also specifies when a service obtains HTTPS
+   certificates, and an optional record that gives the domain owner
+   access to request statistics.
+
+Status of This Memo
+
+   This document is an independent specification published by Trilobit
+   BV.  It is not an Internet Standards Track document, it is not an
+   RFC, and it has not been reviewed or approved by the IETF or the RFC
+   Editor.  It describes the protocol implemented by the AFWD service at
+   afwd.nl, so that others can build compatible services and tools.
+
+   The current version of this document is published at
+   <https://afwd.nl/spec>.  Comments and corrections are welcome at
+   <https://github.com/thijsk/afwd/issues>.
+
+Copyright Notice
+
+   Copyright (c) 2026 Trilobit BV.
+
+   This document is licensed under the Creative Commons Attribution 4.0
+   International License (CC BY 4.0),
+   <https://creativecommons.org/licenses/by/4.0/>.  You may share and
+   adapt it, provided you give appropriate credit.
+
+Table of Contents
+
+{{toc}}
+
+1.  Introduction
+
+   A domain owner often wants a name to lead somewhere else: an old
+   domain to a new one, a short name to a long URL, or every name in a
+   portfolio to a single page.  This usually takes a web server, or an
+   account with a provider that stores the forwarding rule.
+
+   AFWD moves the forwarding rule into the DNS.  The domain owner points
+   the name at an AFWD service and publishes a TXT record that names the
+   destination.  For each request, the service looks up the record for
+   the requested host name and answers with a redirect.  Anyone who can
+   change the DNS for a name can configure it, and changes take effect
+   as the DNS changes, without any action by the service.
+
+   AFWD is inspired by the original web forwarding service at afwd.uk
+   [AFWD-UK], which introduced the idea of configuring forwarding with
+   a single TXT record.  This document is self-contained: it defines the
+   complete protocol, and implementers do not need any other description
+   of it.
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+1.2.  Terminology
+
+   DNS terms such as NXDOMAIN, NODATA, CNAME, and zone apex are used as
+   defined in [RFC9499].
+
+   Service:  An HTTP server that implements this specification and
+      answers requests for names that point at it.
+
+   Domain owner:  Whoever controls the DNS records of a name.
+
+   Request host:  The host name of an HTTP request, as defined in
+      Section 4.1.
+
+   AFWD record:  A DNS TXT record that holds forwarding configuration,
+      as defined in Section 3.1.
+
+   Destination URL:  The URL in the "dest" parameter of an AFWD record.
+
+   Target host:  A host name that the operator of a service publishes
+      for domain owners to use as the target of a CNAME record
+      (Section 7.2).
+
+2.  Overview
+
+   A domain owner who wants "example.com" to forward to
+   "https://www.example.net/" publishes two things:
+
+   1.  Records that send the name's web traffic to a service: A and AAAA
+       records with the service's addresses, or a CNAME record to the
+       service's target host (Section 7).
+
+   2.  An AFWD record, either on the name itself or on
+       "_afwd.example.com":
+
+         _afwd.example.com. 3600 IN TXT
+             "v=afwd1 dest=https://www.example.net/"
+
+   When a browser requests "http://example.com/page", the service:
+
+   1.  takes the request host, "example.com" (Section 4.1);
+
+   2.  finds and parses its AFWD record (Sections 3 and 4.2);
+
+   3.  builds the redirect URL from the record and the request
+       (Section 5.1); and
+
+   4.  answers with a redirect (Section 5.2):
+
+         HTTP/1.1 302 Found
+         Location: https://www.example.net/
+
+   The service also obtains a certificate for the name, so that
+   "https://example.com/" works too (Section 6).
+
+3.  The AFWD Record
+
+3.1.  Record Text
+
+   An AFWD record is a DNS TXT resource record [RFC1035] whose text,
+   formed by joining its character-strings in order without separators,
+   begins with the version tag "v=afwd1" followed by a space (SP), a
+   horizontal tab (HTAB), or the end of the text.  A service MUST ignore
+   other TXT records, including records with another tag such as
+   "v=afwd10".  They can share a name with an AFWD record, for example a
+   record used to verify domain ownership.
+
+   The text of an AFWD record MUST be valid UTF-8 [RFC3629].  An AFWD
+   record that is not valid UTF-8 is invalid (Section 3.4); it is not
+   ignored.
+
+   A TXT character-string holds at most 255 octets.  Longer records are
+   split into several character-strings, which a service joins as
+   described above.  The split can fall anywhere, including inside a
+   URL.
+
+   Domain owners MUST NOT publish more than one AFWD record at the same
+   name.  If a name has more than one, a service MUST treat them as one
+   invalid record (Section 3.4).  The order of DNS answers varies, so
+   using any one of them would send visitors to a different destination
+   from one request to the next.  This commonly happens when a domain
+   owner changes a record by adding a new one instead of editing the
+   old one.
+
+3.2.  Syntax
+
+   The text of an AFWD record is a list of tokens separated by
+   whitespace.  The first token is the version tag.  Each other token is
+   a parameter: a name, an equals sign, and a value.  A value runs to
+   the end of its token and can itself contain equals signs.  Names and
+   values are case-sensitive.
+
+   The following ABNF [RFC5234] [RFC7405] describes a record:
+
+     afwd-record    = version *( 1*WSP parameter ) *WSP
+     version        = %s"v=afwd1"
+     parameter      = dest-param / preserve-param / append-param
+                      / type-param / cert-param
+     dest-param     = %s"dest=" url
+     preserve-param = %s"preserve=" yes-no
+     append-param   = %s"append=" yes-no
+     type-param     = %s"type=" type-value
+     cert-param     = %s"cert=" %s"no"
+     type-value     = %s"perm" / %s"temp" / "301" / "302" / "307"
+                      / "308"
+     yes-no         = %s"y" / %s"n"
+     url            = 1*( VCHAR / UTF8-non-ascii )
+     UTF8-non-ascii = UTF8-2 / UTF8-3 / UTF8-4
+
+   WSP and VCHAR are defined in [RFC5234].  UTF8-2, UTF8-3, and UTF8-4
+   are defined in [RFC3629].  Only SP and HTAB separate tokens.  Any
+   other character, including other Unicode whitespace such as U+00A0
+   (NO-BREAK SPACE), is part of a token.
+
+3.3.  Parameters
+
+   +==========+=============================+=========+==========+
+   | Name     | Value                       | Default | Required |
+   +==========+=============================+=========+==========+
+   | dest     | absolute http or https URL  |         | yes      |
+   +----------+-----------------------------+---------+----------+
+   | preserve | "y" or "n"                  | "n"     | no       |
+   +----------+-----------------------------+---------+----------+
+   | append   | "y" or "n"                  | "n"     | no       |
+   +----------+-----------------------------+---------+----------+
+   | type     | "perm", "temp", "301",      | "302"   | no       |
+   |          | "302", "307", or "308"      |         |          |
+   +----------+-----------------------------+---------+----------+
+   | cert     | "no"                        | (none)  | no       |
+   +----------+-----------------------------+---------+----------+
+
+                       Table 1: AFWD Record Parameters
+
+   dest:  The destination URL.  A service parses the value as a URL with
+      the URL parser of the URL Standard [URL].  The value MUST parse
+      successfully, its scheme MUST be "http" or "https", and it MUST
+      have a host.  Because tokens are separated by whitespace, the URL
+      cannot contain whitespace; domain owners percent-encode it
+      instead.
+
+   preserve:  With "y", the path and query of each request are carried
+      over to the destination URL (Section 5.1).
+
+   append:  With "y", the request host is added to the end of the
+      destination URL (Section 5.1).  When "preserve" and "append" are
+      both "y", "preserve" applies and "append" has no effect.
+
+   type:  The status code of the redirect: 301 (Moved Permanently), 302
+      (Found), 307 (Temporary Redirect), or 308 (Permanent Redirect),
+      as defined in Section 15.4 of [RFC9110].  "perm" means 301 and
+      "temp" means 302.  With 307 and 308, browsers repeat the request
+      method, such as POST, at the destination.
+
+   cert:  With "no", the service does not obtain an HTTPS certificate
+      for the name (Section 6).
+
+3.4.  Invalid Records
+
+   An AFWD record is invalid if:
+
+   o  its name has more than one AFWD record (Section 3.1);
+
+   o  it is not valid UTF-8 (Section 3.1);
+
+   o  a parameter token has no equals sign;
+
+   o  a parameter name is not one of those in Table 1;
+
+   o  a parameter value is not allowed for its name; or
+
+   o  it has no "dest" parameter.
+
+   A service MUST NOT redirect based on an invalid record; it answers as
+   described in Section 5.2.  Unknown parameters make a record invalid,
+   so that a record written for a later version of this specification
+   is never partly applied.  A later version that adds parameters will
+   use a new version tag.
+
+   Domain owners SHOULD NOT repeat a parameter.  If a parameter appears
+   more than once, a service MUST use its last occurrence.
+
+4.  Finding the Record
+
+4.1.  The Request Host
+
+   The request host is the host of the target URI of the request: for a
+   request target in absolute-form, the host in that target, and
+   otherwise the host in the Host header field (Section 3.2.2 of
+   [RFC9112]), or in the ":authority" pseudo-header field in HTTP/2 and
+   HTTP/3 (Section 7.2 of [RFC9110]).  Any port, the brackets around an
+   IPv6 address, and a trailing dot are removed.  Host names are
+   compared case-insensitively, as in the DNS.
+
+   Over HTTPS, the request host can differ from the name in the TLS
+   server_name extension [RFC6066].  A service uses the request host to
+   find the record.  It MAY instead answer such requests with status
+   code 421 (Misdirected Request).
+
+   If a request has no request host, the service MUST answer with status
+   code 400 (Bad Request).
+
+   If the request host is an IPv4 or IPv6 address, there is no name to
+   look up.  The service MAY answer such requests as it sees fit, for
+   example with information about the service.
+
+4.2.  Lookup Procedure
+
+   To find the AFWD record for request host H, a service performs the
+   following steps.  All queries are for absolute names: a service MUST
+   NOT append a search domain.  TXT queries follow CNAME records as
+   usual [RFC1034], so a record can come from the canonical name of the
+   queried name.
+
+   1.  Query the TXT records of "_afwd.H" and of "H".  The two queries
+       MAY be sent at the same time.
+
+   2.  If "_afwd.H" has an AFWD record, use it.
+
+   3.  Otherwise, if "H" has an AFWD record, use it.  This also applies
+       when the query for "_afwd.H" failed with SERVFAIL or REFUSED,
+       but not when it timed out or failed in another way.  A record
+       found after such a failure MUST NOT be used to decide on a
+       certificate (Section 6).
+
+   4.  Otherwise, if either query failed, the lookup has failed.
+
+   5.  Otherwise, query the CNAME record of "H".  If "H" has a CNAME
+       record with target T, and "_afwd.T" has an AFWD record, use it.
+       Only this first link of a CNAME chain is checked: the TXT query
+       for "H" in step 1 already followed the whole chain.  If one of
+       these queries fails, the lookup has failed.
+
+   6.  Otherwise, H has no AFWD record.
+
+   The procedure stops at the first AFWD record it finds, even if that
+   record is invalid.  A service MUST NOT continue looking for a valid
+   record elsewhere.  A domain owner who publishes a broken record at
+   "_afwd.H" therefore sees an error, rather than an older record at
+   "H" quietly taking effect.
+
+   The record on the name itself (step 3) is the simplest place for it.
+   The "_afwd" name (step 2) is needed when H has a CNAME record,
+   because a name with a CNAME record cannot have other records
+   [RFC1034].  Step 3 tolerates SERVFAIL and REFUSED for "_afwd.H"
+   because some DNS servers consistently answer that way for names that
+   start with an underscore; a record on the name keeps working there.
+   A timeout can be temporary, and falling back on it would make the
+   redirect switch between two records.  Step 5 lets names such as
+   "*.example.com CNAME example.com" use the record kept at
+   "_afwd.example.com" (Section 7.4).
+
+4.3.  DNS Errors
+
+   An NXDOMAIN or NODATA answer means that the queried name has no
+   records of the requested type.  It is not a failure.  A timeout, a
+   SERVFAIL or REFUSED response, and any other error is a failure.
+
+   When the lookup fails, the service MUST NOT treat H as having no
+   record.  It answers with a temporary error (Section 5.2) and MUST NOT
+   request a certificate for H (Section 6).
+
+4.4.  Caching
+
+   A service MAY cache DNS answers, including negative answers
+   [RFC2308].  It MUST NOT use a cached answer for longer than its TTL,
+   and SHOULD keep answers for only a short time, so that changes take
+   effect quickly.  The service at afwd.nl keeps answers for at most 60
+   seconds.
+
+   A change to an AFWD record therefore takes effect once the old record
+   has expired from DNS caches, which takes at most its TTL plus the
+   service's own cache time.  Domain owners can lower the TTL before a
+   planned change.
+
+   Browsers can also cache redirects.  Responses with status code 301 or
+   308 are cacheable by default (Section 4.2.2 of [RFC9111]), and
+   browsers can keep them for a long time, so "type=perm" is permanent
+   for visitors too.  A service SHOULD send a Cache-Control header field
+   with a limited max-age directive on such responses (Section 5.2.2.1
+   of [RFC9111]).  The service at afwd.nl sends "max-age=3600".
+
+5.  Answering HTTP Requests
+
+5.1.  Building the Redirect URL
+
+   The redirect URL is built from the destination URL D, the request
+   target R of the request (Section 7.1 of [RFC9110]), and the request
+   host H.  A service MUST build it as follows.
+
+   1.  If "preserve" is "y":
+
+       a.  Take the path of R and remove its dot-segments, as described
+           in Section 5.2.4 of [RFC3986].  Percent-encoded octets are
+           kept as they are.
+
+       b.  The path of the redirect URL is the path of D with any
+           trailing "/" characters removed, followed by the path from
+           step a.
+
+       c.  The query of the redirect URL is the query of D, followed by
+           "&" and the query of R.  If one of them is absent or empty,
+           the other is used alone; if both are, the redirect URL has
+           no query.
+
+       d.  The scheme, host, port, and fragment are those of D.
+
+       e.  The result is serialized as described in the URL Standard
+           [URL], which percent-encodes characters that a URL cannot
+           contain, such as raw non-ASCII octets in the request path.
+
+   2.  Otherwise, if "append" is "y": serialize D as described in the
+       URL Standard [URL], and encode H with the
+       application/x-www-form-urlencoded byte serializer of the URL
+       Standard.  The redirect URL is the serialization of D with the
+       encoded H inserted before its first "#" character, or added to
+       its end if it has none.  The path and query of R are not used.
+
+   3.  Otherwise, the redirect URL is D.  The path and query of R are
+       not used.
+
+   Removing dot-segments in step 1a keeps a ".." in the request from
+   climbing out of the path of D: with
+   "dest=https://www.example.net/base/", a request for "/../secret"
+   goes to "https://www.example.net/base/secret".  Percent-encoded
+   dot-segments such as "%2e%2e" are kept as they are, so a destination
+   that decodes them before it normalizes the path can still be reached
+   outside that path.  Destinations must treat the path as untrusted
+   input (Section 9).
+
+   In step 2, H is used as it appears in the request.  A host name only
+   contains characters that the serializer leaves unchanged, so in
+   practice H is inserted as it is.  "append" is designed for a D that
+   ends with a query parameter without a value, such as
+   "https://www.example.net/?domain=".
+
+   Appendix A gives examples.
+
+5.2.  Responses
+
+   A service answers each request as follows:
+
+   o  If H has a valid AFWD record, the service MUST answer with the
+      status code of its "type" parameter and a Location header field
+      that holds the redirect URL.  This applies to every request
+      method.  The response SHOULD have no content.
+
+   o  If the redirect URL cannot be built because the request target
+      cannot be parsed, the service MUST answer with status code 400
+      (Bad Request).
+
+   o  If H has no AFWD record, the service MUST answer with status code
+      404 (Not Found).  The response SHOULD explain how to configure the
+      name.
+
+   o  If the AFWD record of H is invalid, the service MUST answer with
+      status code 404 (Not Found).  The response SHOULD say why the
+      record is invalid.
+
+   o  If the lookup failed (Section 4.3), the service MUST answer with
+      status code 503 (Service Unavailable).
+
+   A request target in authority-form (used by CONNECT) or asterisk-form
+   ("OPTIONS *") names no resource to forward (Section 3.2 of
+   [RFC9112]).  A service MUST answer such requests with status code 400
+   (Bad Request).
+
+   A service MUST NOT send a Strict-Transport-Security header field
+   [RFC6797] for a forwarded name.  With includeSubDomains on a zone
+   apex, it would force HTTPS for every name in the domain owner's zone,
+   and it conflicts with "cert=no".
+
+   A service MUST answer requests over plain HTTP with the redirect from
+   the record.  It MUST NOT first redirect them to HTTPS on the same
+   host: that adds a round trip, and fails for names with "cert=no".
+
+   A service MAY answer a few paths itself before looking up the record,
+   for its own operation.  An example is the ACME challenge path
+   "/.well-known/acme-challenge/" [RFC8555].  Such paths are then not
+   forwarded, so a service SHOULD keep them to a minimum.
+
+6.  HTTPS and Certificates
+
+   A service SHOULD accept HTTPS connections on port 443.  It obtains a
+   certificate for a name when a TLS connection first arrives for that
+   name, identified by the server_name extension [RFC6066], for example
+   with ACME [RFC8555].
+
+   Before it requests a certificate for a name H, a service MUST perform
+   the lookup procedure of Section 4.2 for H.  It MUST request a
+   certificate only if it finds a valid AFWD record without "cert=no".
+   It MUST NOT request one when the lookup fails, when the record was
+   found only after the query for "_afwd.H" failed (Section 4.2, step
+   3), when H has no AFWD record or an invalid one, or when H is an IP
+   address.  Without this rule, anyone could make the service request
+   certificates for names that have not opted in.
+
+   A wildcard record makes every name under a domain valid, including
+   names that anyone can make up (Section 7.4).  Certificate authorities
+   limit the number of certificates per registrable domain, and count
+   every certificate for the domain, whoever requested it.  A service
+   MUST therefore limit the number of new names per registrable domain
+   that it requests certificates for.  The registrable domain is the
+   part of a name that is registered, as given by the Public Suffix List
+   [PSL].  The service at afwd.nl requests certificates for at most 20
+   new names per registrable domain in any 7 days.  Names it already
+   holds a certificate for do not count.
+
+   A service SHOULD also check that every A and AAAA record of H holds
+   one of its own addresses before it requests a certificate.  The
+   certificate authority validates the request at those addresses.  A
+   name that points elsewhere, for example during a migration or through
+   a forgotten AAAA record, only causes failed validations, and repeated
+   failures can make the authority refuse requests for the name for a
+   while.
+
+   With "cert=no", a service MUST NOT request a certificate for H.
+   HTTPS connections to H then fail during the TLS handshake, while
+   plain HTTP requests are still redirected.  Domain owners use this
+   when HTTPS is not needed, or when another party serves the name over
+   HTTPS.
+
+   A service MAY keep using a certificate it already holds until the
+   certificate expires.  It MUST perform the checks above again before
+   it renews a certificate, and MUST NOT renew it when they fail.  A
+   service MAY also obtain certificates for its own host names, such as
+   its target host.
+
+   Certificate issuance takes a moment, so the first HTTPS request for a
+   new name can be slow or fail.  If the domain publishes CAA records
+   [RFC8659], they must allow the certificate authority that the service
+   uses.
+
+7.  Pointing a Name at a Service
+
+   A name reaches a service in one of the ways below.  The service
+   operator publishes its addresses and, optionally, a target host.
+
+7.1.  Address Records
+
+   The domain owner publishes A and AAAA records with the service's
+   addresses.  The AFWD record can be at the name or at "_afwd.<name>":
+
+     example.com. 3600 IN A    192.0.2.1
+     example.com. 3600 IN AAAA 2001:db8::1
+     example.com. 3600 IN TXT  "v=afwd1 dest=https://example.net/"
+
+   If the service's addresses change, every domain owner has to update
+   these records.
+
+7.2.  CNAME Records
+
+   The domain owner publishes a CNAME record to the service's target
+   host.  A name with a CNAME record cannot have other records
+   [RFC1034], so the AFWD record goes at "_afwd.<name>":
+
+     go.example.com.       3600 IN CNAME fwd.afwd.example.
+     _afwd.go.example.com. 3600 IN TXT
+         "v=afwd1 dest=https://example.net/"
+
+   The service operator can change the addresses of the target host
+   without any action by domain owners.
+
+7.3.  Records at the Zone Apex
+
+   A zone apex, such as "example.com", cannot have a CNAME record.  Many
+   DNS providers offer a record that resolves a target host and serves
+   its addresses as A and AAAA records, under names such as ALIAS,
+   ANAME, or CNAME flattening.  These are not standardized.  For the
+   service, such a name has A and AAAA records (Section 7.1), and its
+   AFWD record can be at the name or at "_afwd.<name>".
+
+7.4.  Wildcards
+
+   To forward every name under a domain, the domain owner publishes a
+   wildcard CNAME record to the domain, which itself points at the
+   service:
+
+     *.example.com.     3600 IN CNAME example.com.
+     example.com.       3600 IN A     192.0.2.1
+     _afwd.example.com. 3600 IN TXT
+         "v=afwd1 dest=https://example.net/"
+
+   A request for "www.example.com" finds the record at
+   "_afwd.example.com" in step 5 of the lookup procedure (Section 4.2).
+
+   Every made-up name, such as "x7f3.example.com", then has a valid
+   record too.  Sections 6 and 8.2 limit how many such names a service
+   requests certificates for and keeps statistics for.
+
+   A wildcard CNAME record applies to every record type.  Queries for
+   other types at those names, such as MX and TXT, also follow the
+   CNAME, so every subdomain appears to have the mail and SPF records of
+   "example.com".  Domain owners should check that this is intended.
+
+7.5.  Requirements for Service Operators
+
+   The target host MUST NOT have an AFWD record, at its own name or at
+   "_afwd.<target host>".  Every name with a CNAME record to the target
+   host would otherwise use that record (Section 4.2, steps 3 and 5).
+
+   The operator MUST keep control of its target host and its addresses
+   for as long as names point at them.  Whoever controls them can answer
+   requests for those names and obtain certificates for them.  An
+   operator that stops a service SHOULD tell domain owners to remove
+   their records first.
+
+   How a service answers requests for its own host names, including the
+   target host, is outside the scope of this document.
+
+8.  Statistics
+
+   This section is OPTIONAL.  It lets a domain owner see how often the
+   service forwarded requests for a name, without an account: access is
+   granted by a record in the DNS.
+
+8.1.  The Statistics Record
+
+   A statistics record is a DNS TXT record at "_afwd-stats.H" whose
+   text, joined as in Section 3.1, begins with "v=afwdstats1".  Its
+   other tokens are separated by whitespace.  Each token of the form
+   "h=<hash>" holds the SHA-256 hash [FIPS180-4] of a token, written in
+   hexadecimal (base16, Section 8 of [RFC4648]), in upper or lower case.
+   A service MUST ignore other tokens.
+
+     _afwd-stats.example.com. 3600 IN TXT "v=afwdstats1 h=<64 hex>"
+
+   A name can have several statistics records, and a record can have
+   several "h=" tokens.  Each hash grants access.  Domain owners SHOULD
+   use a different token for each name: the same token gives the same
+   hash, so anyone could see in the DNS that the names share an owner.
+   Domain owners rotate a token by adding the hash of the new one before
+   removing the old one.  A statistics record applies only to H:
+   "www.example.com" needs its own record at
+   "_afwd-stats.www.example.com".
+
+   The token is a secret chosen by the domain owner.  Its hash is public
+   in the DNS, so the token MUST be generated randomly with at least 128
+   bits of entropy; a guessable token can be found from its hash.  The
+   service at afwd.nl generates 256 random bits, encoded as base64url
+   (Section 5 of [RFC4648]), in the browser.
+
+8.2.  Statistics API
+
+   A service that offers statistics publishes a base URL B.  For the
+   service at afwd.nl, B is "https://afwd.nl".  The statistics of H are
+   requested with:
+
+     GET B/api/stats/H
+     Authorization: Bearer <token>
+
+   The Authorization header field uses the Bearer scheme of [RFC6750].
+   The service computes the SHA-256 hash of the UTF-8 octets of the
+   token, and compares its hexadecimal form case-insensitively with the
+   "h=" values of the statistics records of H.
+
+   o  If a value matches, the service MUST answer with status code 200
+      (OK) and a JSON [RFC8259] report.
+
+   o  Otherwise, including when there is no token or no statistics
+      record, the service MUST answer with status code 401
+      (Unauthorized) and a WWW-Authenticate header field for the Bearer
+      scheme (Section 3 of [RFC6750]).
+
+   The service MUST look up the statistics records for each request,
+   subject to caching (Section 4.4), so that removing a record removes
+   access.
+
+   The report is a JSON object with three members:
+
+     {
+       "hits": [[1794668400, "302", 17], [1794672000, "302", 4]],
+       "paths": [["/", 12], ["/blog", 9]],
+       "referrers": [["www.example.org", 3]]
+     }
+
+   hits:  The number of requests per hour and status.  Each entry holds
+      the start of the hour in seconds since 1970-01-01T00:00:00Z, the
+      status, and the number of requests.  The status is the decimal
+      status code of the response, or "config-error" for requests
+      answered while the AFWD record was invalid.
+
+   paths:  The most requested paths, without query, and their number of
+      requests, most requested first.
+
+   referrers:  The host names in the Referer header field of requests,
+      and their number of requests, most frequent first.
+
+   A service counts the requests for H that it answered from an AFWD
+   record of H, valid or invalid.  It does not count requests for names
+   without an AFWD record, so that requests with made-up host names do
+   not fill its storage.  A wildcard record gives every made-up name a
+   record (Section 7.4), so a service MUST also limit the number of
+   names per registrable domain (Section 6) that it keeps statistics
+   for.  The service at afwd.nl counts at most 20 names per registrable
+   domain in each hour.  A service MAY limit the number of entries and
+   the period covered.  The service at afwd.nl reports at most 50 paths
+   and 50 referrers, truncates paths to 256 characters, and keeps
+   statistics for 90 days.
+
+9.  Security Considerations
+
+   Authority.  A service forwards a name to wherever the DNS for that
+   name says.  Control of the DNS is the only authority: the service
+   does not check who published a record.  An attacker who can change
+   or spoof the DNS answers that a service receives can redirect the
+   name, and can obtain a certificate for it.  A service SHOULD use a
+   resolver that validates DNSSEC [RFC4033], and domain owners SHOULD
+   sign their zones.
+
+   Certificate requests.  The rules in Section 6 prevent anyone from
+   making a service request certificates for names that have not opted
+   in, or for more names under a wildcard than the limit allows.  A
+   service that skips them can be made to use up the certificate rate
+   limits of a domain owner's registrable domain, fill the public
+   Certificate Transparency logs with made-up names, and end up holding
+   certificates for names it does not serve.
+
+   Made-up host names.  Anyone can send requests with any Host header
+   field.  Each one causes DNS queries.  A service SHOULD cache negative
+   answers (Section 4.4).  Apart from its own host names, a service MUST
+   NOT store data per name for names without an AFWD record
+   (Section 8.2), or such requests can fill its storage.  Names under a
+   wildcard record do have one; Sections 6 and 8.2 limit how many of
+   those a service acts on.
+
+   Path preservation.  With "preserve=y", the destination receives the
+   path and query of every request, chosen by whoever sends the
+   request.  Removing dot-segments keeps requests inside the path of
+   the destination URL, but the destination must treat the path and
+   query as untrusted input, as it would any request.
+
+   Abuse.  A service can be used to send people to harmful sites under
+   another name.  Operators SHOULD publish an abuse contact, and MAY
+   refuse to forward a name.
+
+   Redirect loops.  A destination URL that leads back to the same name
+   creates a loop, which browsers stop after a few redirects.  A service
+   MAY detect and refuse such records.
+
+   Dangling records.  A name that still points at a service after its
+   owner stops using it keeps forwarding as long as the AFWD record
+   remains.  Domain owners SHOULD remove both the AFWD record and the
+   records that point the name at the service.  For the risk of a
+   target host changing hands, see Section 7.5.
+
+   HTTPS-only names.  Browsers reach some names only over HTTPS, for
+   example names on HSTS preload lists or under top-level domains that
+   require HTTPS [RFC6797].  A record with "cert=no" makes such names
+   unreachable.
+
+   Statistics tokens.  Hashes of statistics tokens are public.  The
+   entropy requirement of Section 8.1 makes finding a token from its
+   hash infeasible.  A service SHOULD only accept tokens over HTTPS.
+
+10.  Privacy Considerations
+
+   AFWD records, including destination URLs, are public.  Domain owners
+   MUST NOT put secrets, such as access tokens, in a destination URL.
+
+   A service sees every request it forwards, including the client's IP
+   address, the path and query, and request headers.  A service SHOULD
+   NOT store more of this than it needs.  The service at afwd.nl stores
+   only the counts described in Section 8.2: it does not store IP
+   addresses, user agents, or query strings.
+
+   With "preserve=y" the destination receives the path and query of
+   each request, and with "append=y" it learns the name the visitor
+   used.  Domain owners choose these parameters knowingly.
+
+11.  IANA Considerations
+
+   This document has no IANA actions.  It uses the underscored DNS node
+   names "_afwd" and "_afwd-stats", which are not registered in the
+   "Underscored and Globally Scoped DNS Node Names" registry [RFC8552].
+
+12.  References
+
+12.1.  Normative References
+
+   [FIPS180-4]
+              National Institute of Standards and Technology, "Secure
+              Hash Standard (SHS)", FIPS PUB 180-4,
+              DOI 10.6028/NIST.FIPS.180-4, August 2015,
+              <https://doi.org/10.6028/NIST.FIPS.180-4>.
+
+   [RFC1034]  Mockapetris, P., "Domain names - concepts and
+              facilities", STD 13, RFC 1034, DOI 10.17487/RFC1034,
+              November 1987, <https://www.rfc-editor.org/info/rfc1034>.
+
+   [RFC1035]  Mockapetris, P., "Domain names - implementation and
+              specification", STD 13, RFC 1035, DOI 10.17487/RFC1035,
+              November 1987, <https://www.rfc-editor.org/info/rfc1035>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC2308]  Andrews, M., "Negative Caching of DNS Queries (DNS
+              NCACHE)", RFC 2308, DOI 10.17487/RFC2308, March 1998,
+              <https://www.rfc-editor.org/info/rfc2308>.
+
+   [RFC3629]  Yergeau, F., "UTF-8, a transformation format of ISO
+              10646", STD 63, RFC 3629, DOI 10.17487/RFC3629, November
+              2003, <https://www.rfc-editor.org/info/rfc3629>.
+
+   [RFC3986]  Berners-Lee, T., Fielding, R., and L. Masinter, "Uniform
+              Resource Identifier (URI): Generic Syntax", STD 66,
+              RFC 3986, DOI 10.17487/RFC3986, January 2005,
+              <https://www.rfc-editor.org/info/rfc3986>.
+
+   [RFC4648]  Josefsson, S., "The Base16, Base32, and Base64 Data
+              Encodings", RFC 4648, DOI 10.17487/RFC4648, October 2006,
+              <https://www.rfc-editor.org/info/rfc4648>.
+
+   [RFC5234]  Crocker, D., Ed. and P. Overell, "Augmented BNF for Syntax
+              Specifications: ABNF", STD 68, RFC 5234,
+              DOI 10.17487/RFC5234, January 2008,
+              <https://www.rfc-editor.org/info/rfc5234>.
+
+   [RFC6066]  Eastlake 3rd, D., "Transport Layer Security (TLS)
+              Extensions: Extension Definitions", RFC 6066,
+              DOI 10.17487/RFC6066, January 2011,
+              <https://www.rfc-editor.org/info/rfc6066>.
+
+   [RFC6750]  Jones, M. and D. Hardt, "The OAuth 2.0 Authorization
+              Framework: Bearer Token Usage", RFC 6750,
+              DOI 10.17487/RFC6750, October 2012,
+              <https://www.rfc-editor.org/info/rfc6750>.
+
+   [RFC7405]  Kyzivat, P., "Case-Sensitive String Support in ABNF",
+              RFC 7405, DOI 10.17487/RFC7405, December 2014,
+              <https://www.rfc-editor.org/info/rfc7405>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8259]  Bray, T., Ed., "The JavaScript Object Notation (JSON) Data
+              Interchange Format", STD 90, RFC 8259,
+              DOI 10.17487/RFC8259, December 2017,
+              <https://www.rfc-editor.org/info/rfc8259>.
+
+   [RFC9110]  Fielding, R., Ed., Nottingham, M., Ed., and J. Reschke,
+              Ed., "HTTP Semantics", STD 97, RFC 9110,
+              DOI 10.17487/RFC9110, June 2022,
+              <https://www.rfc-editor.org/info/rfc9110>.
+
+   [RFC9112]  Fielding, R., Ed., Nottingham, M., Ed., and J. Reschke,
+              Ed., "HTTP/1.1", STD 99, RFC 9112, DOI 10.17487/RFC9112,
+              June 2022, <https://www.rfc-editor.org/info/rfc9112>.
+
+   [URL]      WHATWG, "URL Standard", <https://url.spec.whatwg.org/>.
+
+12.2.  Informative References
+
+   [AFWD-UK]  8086 Consultancy, "Free Automatic Web Forwarding",
+              <https://afwd.uk/>.
+
+   [PSL]      Mozilla Foundation, "Public Suffix List",
+              <https://publicsuffix.org/>.
+
+   [RFC4033]  Arends, R., Austein, R., Larson, M., Massey, D., and S.
+              Rose, "DNS Security Introduction and Requirements",
+              RFC 4033, DOI 10.17487/RFC4033, March 2005,
+              <https://www.rfc-editor.org/info/rfc4033>.
+
+   [RFC6797]  Hodges, J., Jackson, C., and A. Barth, "HTTP Strict
+              Transport Security (HSTS)", RFC 6797,
+              DOI 10.17487/RFC6797, November 2012,
+              <https://www.rfc-editor.org/info/rfc6797>.
+
+   [RFC8552]  Crocker, D., "Scoped Interpretation of DNS Resource
+              Records through "Underscored" Naming of Attribute Leaves",
+              BCP 222, RFC 8552, DOI 10.17487/RFC8552, March 2019,
+              <https://www.rfc-editor.org/info/rfc8552>.
+
+   [RFC8555]  Barnes, R., Hoffman-Andrews, J., McCarney, D., and J.
+              Kasten, "Automatic Certificate Management Environment
+              (ACME)", RFC 8555, DOI 10.17487/RFC8555, March 2019,
+              <https://www.rfc-editor.org/info/rfc8555>.
+
+   [RFC8659]  Hallam-Baker, P., Stradling, R., and J. Hoffman-Andrews,
+              "DNS Certification Authority Authorization (CAA) Resource
+              Record", RFC 8659, DOI 10.17487/RFC8659, November 2019,
+              <https://www.rfc-editor.org/info/rfc8659>.
+
+   [RFC9111]  Fielding, R., Ed., Nottingham, M., Ed., and J. Reschke,
+              Ed., "HTTP Caching", STD 98, RFC 9111,
+              DOI 10.17487/RFC9111, June 2022,
+              <https://www.rfc-editor.org/info/rfc9111>.
+
+   [RFC9499]  Hoffman, P. and K. Fujiwara, "DNS Terminology", BCP 219,
+              RFC 9499, DOI 10.17487/RFC9499, March 2024,
+              <https://www.rfc-editor.org/info/rfc9499>.
+
+Appendix A.  Examples
+
+   Each example gives the parameters of an AFWD record for
+   "example.com", a request, and the Location of the redirect.
+
+   Default: no path or query is carried over.
+
+     dest=https://www.example.net/
+       /page?x=1          -> https://www.example.net/
+
+   The query of the destination URL is kept:
+
+     dest=https://www.example.net/?ref=afwd
+       /page              -> https://www.example.net/?ref=afwd
+
+   Path and query are carried over:
+
+     preserve=y dest=https://www.example.net/
+       /blog/post?x=1     -> https://www.example.net/blog/post?x=1
+
+   The query of the destination URL comes before that of the request:
+
+     preserve=y dest=https://www.example.net/?ref=afwd
+       /page?x=1          -> https://www.example.net/page?ref=afwd&x=1
+
+   The request path is added to the path of the destination URL:
+
+     preserve=y dest=https://www.example.net/base
+       /a/b?x=1           -> https://www.example.net/base/a/b?x=1
+       /../../secret      -> https://www.example.net/base/secret
+
+   The request host is added to the destination URL:
+
+     append=y dest=https://www.example.net/?domain=
+       /page              -> https://www.example.net/?domain=example.com
+
+     append=y dest=https://www.example.net/for/
+       /                  -> https://www.example.net/for/example.com
+
+     append=y dest=https://www.example.net/?host=#top
+       /      -> https://www.example.net/?host=example.com#top
+
+   "preserve" applies when both are set:
+
+     preserve=y append=y dest=https://www.example.net/
+       /page?x=1          -> https://www.example.net/page?x=1
+
+   Status codes:
+
+     type=perm dest=https://www.example.net/     -> 301
+     type=308 dest=https://www.example.net/      -> 308
+     dest=https://www.example.net/               -> 302
+
+   Invalid records, answered with 404 (Not Found):
+
+     v=afwd1 preserve=y                       (no "dest")
+     v=afwd1 dest=ftp://example.net/          (scheme not allowed)
+     v=afwd1 dest=https://example.net/ www=y  (unknown parameter)
+     v=afwd1 dest=https://example.net/ type=303
+                                              (value not allowed)
+     v=afwd1 dest=https://example.net/ preserve=Y
+                                              (values are
+                                               case-sensitive)
+     v=afwd1 dest=https://a.example/          (two records at the
+     v=afwd1 dest=https://b.example/           same name)
+
+   Not an AFWD record, so it is ignored:
+
+     v=afwd10 dest=https://example.net/       (another version tag)
+
+Acknowledgements
+
+   AFWD is inspired by the original work of Chris Burton (8086
+   Consultancy), who created the web forwarding service at afwd.uk and
+   the idea of configuring it with a single TXT record.
+
+Author's Address
+
+   Thijs Kroesbergen
+   Trilobit BV
+   Netherlands
+
+   Email: info@trilobit.nl
+   URI:   https://afwd.nl/

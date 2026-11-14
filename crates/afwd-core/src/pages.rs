@@ -76,6 +76,13 @@ pub struct StatsPage;
 #[template(path = "domains.html")]
 pub struct DomainsPage;
 
+/// The specification, already laid out and escaped as HTML.
+#[derive(Template)]
+#[template(path = "spec.html")]
+pub struct SpecPage {
+    pub html: &'static str,
+}
+
 #[derive(Template)]
 #[template(path = "not_found.html")]
 pub struct NotFound {
