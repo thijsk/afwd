@@ -1,0 +1,20 @@
+[package]
+name = "afwd-core"
+description = "Shared AFWD code: DNS lookups, record parsing, pages and statistics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+askama.workspace = true
+axum.workspace = true
+hickory-resolver.workspace = true
+psl.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true

@@ -1,8 +1,9 @@
+# Local HTTPS for the help site, with afwd-site running on its default address.
 https://afwd.nl {
 	log {
 		output stdout
 		format json
 	}
 	tls internal
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:8081
 }

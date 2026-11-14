@@ -29,13 +29,13 @@ jobs:
         components: clippy, rustfmt
 
     - name: Check formatting
-      run: cargo fmt --check
+      run: cargo fmt --all --check
 
     - name: Run Clippy
-      run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
     - name: Run tests
-      run: cargo test --locked --all-targets
+      run: cargo test --locked --workspace --all-targets
 
   licenses:
     name: Check dependency licenses
@@ -50,9 +50,13 @@ jobs:
         command: check licenses
 
   image:
-    name: Build and publish image
+    name: Build and publish ${{ matrix.target }} image
     needs: [test, licenses]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [proxy, edge, site]
     permissions:
       contents: read
       packages: write
@@ -75,7 +79,7 @@ jobs:
       id: metadata
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}
+        images: ghcr.io/${{ github.repository }}-${{ matrix.target }}
         tags: |
           type=ref,event=branch
           type=ref,event=tag
@@ -86,10 +90,11 @@ jobs:
       with:
         context: .
         file: ./Dockerfile
+        target: ${{ matrix.target }}
         push: ${{ github.event_name == 'push' }}
         tags: ${{ steps.metadata.outputs.tags }}
         labels: ${{ steps.metadata.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=${{ matrix.target }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.target }}
         provenance: mode=max
         sbom: true

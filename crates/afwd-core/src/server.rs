@@ -1,13 +1,25 @@
+//! Startup shared by the `afwd-edge` and `afwd-site` binaries.
+
 use std::{net::SocketAddr, time::Duration};
 
-use afwd::{dns::DnsConfig, docs::DocsConfig, http::router_with_stats, stats::Stats};
+use axum::Router;
 use tokio::net::TcpListener;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+use crate::{dns::DnsConfig, docs::DocsConfig, stats::Stats};
+
+/// Builds a service's router from the shared configuration.
+pub type App = fn(DnsConfig, DocsConfig, Option<Stats>) -> Router;
+
+/// Reads the configuration from the environment and serves `app` on `AFWD_BIND`, or on
+/// `default_bind` when that is not set.
+pub async fn run(
+    name: &str,
+    default_bind: &str,
+    app: App,
+) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let address: SocketAddr = std::env::var("AFWD_BIND")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
+        .unwrap_or_else(|_| default_bind.to_owned())
         .parse()?;
     let dns = DnsConfig::new(Duration::from_secs(60));
     let docs = DocsConfig::from_env();
@@ -26,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     let listener = TcpListener::bind(address).await?;
-    tracing::info!(%address, "AFWD service listening");
-    axum::serve(listener, router_with_stats(dns, docs, Some(stats))).await?;
+    tracing::info!(%address, service = name, "AFWD service listening");
+    axum::serve(listener, app(dns, docs, Some(stats))).await?;
     Ok(())
 }

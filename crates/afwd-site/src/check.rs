@@ -4,7 +4,7 @@ use std::net::IpAddr;
 
 use serde::Serialize;
 
-use crate::{config::parse_txt_record, dns::DnsConfig, redirect::redirect_url};
+use afwd_core::{config::parse_txt_record, dns::DnsConfig, redirect::redirect_url};
 
 pub const SAMPLE_PATH: &str = "/blog/post?x=1";
 

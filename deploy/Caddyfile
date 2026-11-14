@@ -1,3 +1,6 @@
+# Caddy installed on the host, with afwd-edge on 127.0.0.1:8080 and afwd-site on
+# 127.0.0.1:8081 (their default addresses). The help domain (AFWD_HELP_DOMAIN, default
+# afwd.nl) goes to the site; every other host goes to the edge.
 {
 	auto_https disable_redirects
 	on_demand_tls {
@@ -5,21 +8,27 @@
 	}
 }
 
-:80 {
+(route) {
 	log {
 		output stdout
 		format json
 	}
-	reverse_proxy 127.0.0.1:8080
+	@site host {$AFWD_HELP_DOMAIN:afwd.nl}
+	handle @site {
+		reverse_proxy 127.0.0.1:8081
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}
+
+:80 {
+	import route
 }
 
 :443 {
-	log {
-		output stdout
-		format json
-	}
 	tls {
 		on_demand
 	}
-	reverse_proxy 127.0.0.1:8080
+	import route
 }

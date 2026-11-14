@@ -1,0 +1,3 @@
+# The templates are shared by the workspace and live at its root.
+[general]
+dirs = ["../../templates"]

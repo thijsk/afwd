@@ -4,6 +4,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use axum::http::{header::REFERER, HeaderMap, Uri};
 use rusqlite::{params, Connection};
 use url::Url;
 
@@ -173,6 +174,20 @@ impl Stats {
         })
         .await
         .expect("stats query task panicked")
+    }
+}
+
+/// Counts a request for `host`, when statistics are enabled.
+pub fn record_request(
+    stats: Option<&Stats>,
+    host: &str,
+    status: &str,
+    uri: &Uri,
+    headers: &HeaderMap,
+) {
+    if let Some(stats) = stats {
+        let referer = headers.get(REFERER).and_then(|value| value.to_str().ok());
+        stats.record(host, status, uri.path(), referer);
     }
 }
 

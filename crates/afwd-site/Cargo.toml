@@ -1,0 +1,21 @@
+[package]
+name = "afwd-site"
+description = "AFWD help site: landing page, docs, domain checker and statistics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+afwd-core.workspace = true
+axum.workspace = true
+hickory-resolver.workspace = true
+serde.workspace = true
+sha2.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tower.workspace = true

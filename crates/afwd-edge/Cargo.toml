@@ -1,0 +1,16 @@
+[package]
+name = "afwd-edge"
+description = "AFWD forwarding service: redirects every host except the help domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+afwd-core.workspace = true
+axum.workspace = true
+serde.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

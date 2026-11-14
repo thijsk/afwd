@@ -2,10 +2,12 @@
 .github
 .vscode
 target
-Dockerfile
-docker-compose.yml
-*.env
+target-validation
+**/.env
+**/.env.*
 *.pem
 *.key
+*.db
+*.db-*
+PLAN.md
 README.md
-tests

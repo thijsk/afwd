@@ -6,9 +6,15 @@ This project is based on the web forwarding specification published at [afwd.uk]
 
 The service reads `v=afwd1` TXT records and returns HTTP redirects. HTTPS certificates are provided automatically.
 
-## Caddy
+## Containers
 
-The Docker image runs Rust and Caddy together. Rust listens privately on port `9000`. Caddy provides public HTTP and HTTPS access on ports `80` and `443`. A record with `cert=no` returns `403` and does not receive a certificate.
+The service runs as three containers:
+
+- `proxy` runs Caddy. It provides public HTTP and HTTPS access and gets the certificates. It sends the help domain to `site` and every other host to `edge`.
+- `edge` is the forwarding service (`crates/afwd-edge`). It answers Caddy's certificate check: a record with `cert=no` returns `403` and does not receive a certificate.
+- `site` is the help site (`crates/afwd-site`): the landing page, docs, checker and statistics.
+
+`edge` and `site` listen on port `9000` inside the container network and are not published. Shared code lives in `crates/afwd-core`. `deploy/compose.yml` builds and runs all three.
 
 A forwarding domain points at the service in one of three ways:
 
@@ -36,19 +42,28 @@ The HTML pages are askama templates in `templates/`. They are compiled into the 
 
 The help domain also serves `/.well-known/security.txt`, with Trilobit's published contact address (`info@trilobit.nl`) and a rolling one-year expiry.
 
-Run the complete service with Docker:
+Run the complete service with Docker Compose. Copy `deploy/.env.example` to `deploy/.env` and fill in the public addresses, then build and start it:
 
 ```powershell
-docker run --rm --name afwd -e AFWD_PUBLIC_IPV4=YOUR_PUBLIC_IPV4 -e AFWD_PUBLIC_IPV6=YOUR_PUBLIC_IPV6 -e AFWD_HELP_DOMAIN=afwd.nl -p 80:8080 -p 443:8443 -v afwd-data:/data -v afwd-config:/config -v afwd-stats:/stats afwd:local
+docker compose -f deploy/compose.yml up --build -d
 ```
 
-View HTTP access logs with `docker logs -f afwd`.
+On a server, use the images that CI publishes (`ghcr.io/thijsk/afwd-proxy`, `-edge` and `-site`) instead of building:
+
+```powershell
+docker compose -f deploy/compose.yml pull
+docker compose -f deploy/compose.yml up -d
+```
+
+The volumes keep the names of the earlier single-container setup (`afwd-data`, `afwd-config`, `afwd-stats`), and Caddy uses the same certificate path, so certificates and statistics carry over. View HTTP access logs with `docker compose -f deploy/compose.yml logs -f proxy`.
+
+To test locally without HTTPS, set `AFWD_HTTP_PORT` (for example `8080`) and send requests with a Host header, such as `curl -H "Host: afwd.nl" http://127.0.0.1:8080/`.
 
 ## Usage statistics
 
 The service counts requests for each domain that has an AFWD TXT record. It also counts visits to `/`, `/docs` and `/stats` on the help domain, but not `/domains`, the `/api/` endpoints, or security.txt. It counts hits by hour and status, paths, and referrer domains. It does not store IP addresses, user agents, or query strings. The statistics are kept for 90 days. The public `/domains` page lists the 100 domains with the most requests during that period, excluding the help domain.
 
-The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). Containers on the same host can share the `afwd-stats` volume.
+The statistics are stored in the SQLite file `AFWD_STATS_DB` (default `/stats/afwd.db` in Docker). `edge` and `site` share the `afwd-stats` volume: `edge` counts forwarded requests, `site` counts help pages and reads the statistics.
 
 To see the statistics for a domain, the owner opens `https://<help domain>/stats` and creates a token. Then the owner adds this TXT record:
 
@@ -60,14 +75,17 @@ The API is `GET https://<help domain>/api/stats/example.com` with the header `Au
 
 ## Local HTTPS testing
 
-Add `127.0.0.1 afwd.nl` to your hosts file. Start the Rust service, then run Caddy with `deploy/Caddyfile.local`. Run `caddy trust` once so your browser trusts Caddy's local certificate.
+Add `127.0.0.1 afwd.nl` to your hosts file. Start the help site with `cargo run --bin afwd-site`, then run Caddy with `deploy/Caddyfile.local`. Run `caddy trust` once so your browser trusts Caddy's local certificate.
 
 ## Development
 
 ```powershell
 cargo test
-cargo run
+cargo run --bin afwd-edge   # forwarding service on 127.0.0.1:8080
+cargo run --bin afwd-site   # help site on 127.0.0.1:8081
 ```
+
+Set `AFWD_BIND` to change the address. `deploy/Caddyfile` routes a Caddy installed on the host to these two addresses.
 
 CI also checks that every dependency uses a permissive license, with `cargo deny check licenses` and the allow list in `deny.toml`.
 

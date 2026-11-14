@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "afwd"
+name = "afwd-core"
 version = "0.1.0"
 dependencies = [
  "askama",
@@ -12,15 +12,38 @@ dependencies = [
  "psl",
  "rusqlite",
  "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "afwd-edge"
+version = "0.1.0"
+dependencies = [
+ "afwd-core",
+ "axum",
+ "serde",
+ "tokio",
+ "tower",
+]
+
+[[package]]
+name = "afwd-site"
+version = "0.1.0"
+dependencies = [
+ "afwd-core",
+ "axum",
+ "hickory-resolver",
+ "serde",
  "serde_json",
  "sha2",
- "thiserror",
  "time",
  "tokio",
  "tower",
  "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
