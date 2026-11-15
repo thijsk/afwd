@@ -23,6 +23,10 @@
 }
 
 :80 {
+	# The help site is served only over HTTPS. Forwarded domains still answer over
+	# HTTP, because their redirects come from their own AFWD records.
+	@help_http host {$AFWD_HELP_DOMAIN:afwd.nl}
+	redir @help_http https://{host}{uri} permanent
 	import route
 }
 
