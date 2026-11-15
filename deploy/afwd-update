@@ -36,6 +36,12 @@ for service in $SERVICES; do
     # vouches for both, so a workflow changed in another branch cannot claim main.
     if ! out=$(cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$ref" 2>&1); then
         printf '%s\n' "$out"
+        case $out in
+            # CI signs right after publishing, so a new image is unsigned for a moment.
+            *"no signatures found"*)
+                echo "$ref is not signed yet; trying again later"
+                exit 0 ;;
+        esac
         echo "$ref is not signed by $IDENTITY; not updating"
         exit 1
     fi
