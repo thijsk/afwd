@@ -5,7 +5,7 @@ use std::{
 };
 
 use axum::http::{header::REFERER, HeaderMap, Uri};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 use url::Url;
 
 type Key = (String, i64, &'static str, String);
@@ -78,26 +78,30 @@ impl Stats {
         let db = Connection::open(path)?;
         db.pragma_update(None, "journal_mode", "WAL")?;
         db.busy_timeout(Duration::from_secs(5))?;
-        let fresh = db.query_row(
+        // edge and site open the same database at the same time. One write transaction
+        // makes the schema setup and the seeding below happen exactly once and completely.
+        let setup = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
+        let fresh = setup.query_row(
             "SELECT COUNT(*) = 0 FROM sqlite_master WHERE name = 'certificate_names'",
             [],
             |row| row.get::<_, bool>(0),
         )?;
-        db.execute_batch(SCHEMA)?;
+        setup.execute_batch(SCHEMA)?;
         if fresh {
             // Names that already forward traffic got their certificates before the cap
             // existed; they do not count as new.
-            let hosts = db
+            let hosts = setup
                 .prepare("SELECT DISTINCT host FROM counts WHERE kind = 'status'")?
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?;
-            let mut insert = db.prepare(
+            let mut insert = setup.prepare(
                 "INSERT OR IGNORE INTO certificate_names (host, domain, admitted) VALUES (?1, ?2, 0)",
             )?;
             for host in hosts {
                 insert.execute(params![host, registrable_domain(&host)])?;
             }
         }
+        setup.commit()?;
         Ok(Self {
             pending: Arc::default(),
             hosts: Arc::default(),
