@@ -1,0 +1,68 @@
+#!/bin/sh
+# Updates the afwd containers to the newest images from main. It only runs images that
+# GitHub Actions built and signed on main, so a build from any other branch can never
+# reach the server. afwd-update.timer runs it every 5 minutes.
+#
+#   afwd-update          update and start all containers
+#   afwd-update edge     pin the images, but start only the named containers
+#
+# The verified images are pinned by digest in compose.override.yaml, which compose reads
+# together with compose.yaml, so manual `docker compose` commands use them too.
+#
+# Needs cosign (https://github.com/sigstore/cosign) in PATH.
+set -eu
+
+DIR=/opt/afwd
+IMAGE=ghcr.io/thijsk/afwd
+IDENTITY=https://github.com/thijsk/afwd/.github/workflows/container.yml@refs/heads/main
+ISSUER=https://token.actions.githubusercontent.com
+SERVICES="proxy edge site"
+
+cd "$DIR"
+exec 9>"$DIR/.afwd-update.lock"
+flock --nonblock 9 || { echo "another update is running"; exit 0; }
+
+revision=
+pins=
+for service in $SERVICES; do
+    digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$IMAGE-$service:main")
+    ref="$IMAGE-$service@$digest"
+
+    # The signing certificate names the workflow and the branch it ran on. GitHub
+    # vouches for both, so a workflow changed in another branch cannot claim main.
+    if ! out=$(cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$ref" 2>&1); then
+        printf '%s\n' "$out"
+        echo "$ref is not signed by $IDENTITY; not updating"
+        exit 1
+    fi
+
+    docker pull --quiet "$ref" >/dev/null
+    commit=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref")
+    if [ -z "$revision" ]; then
+        revision=$commit
+    elif [ "$commit" != "$revision" ]; then
+        echo "the images are from different commits; CI is probably still publishing. Trying again later"
+        exit 0
+    fi
+
+    pins="$pins
+  $service:
+    image: $ref
+    build: !reset null"
+done
+
+pinned="# Written by afwd-update: commit $revision, signed on main.
+services:$pins"
+if [ "$pinned" != "$(cat compose.override.yaml 2>/dev/null)" ]; then
+    printf '%s\n' "$pinned" >compose.override.yaml.new
+    docker compose --file compose.yaml --file compose.override.yaml.new config --quiet
+    mv compose.override.yaml.new compose.override.yaml
+    echo "deploying commit $revision"
+fi
+
+if [ $# -gt 0 ]; then
+    docker compose --progress quiet up --detach "$@"
+else
+    docker compose --progress quiet up --detach --remove-orphans
+    docker image prune --force >/dev/null
+fi

@@ -1,0 +1,10 @@
+[Unit]
+Description=Update afwd to the newest signed images from main
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/opt/afwd/afwd-update

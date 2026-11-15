@@ -14,6 +14,11 @@ name: afwd
 
 x-service: &service
   restart: unless-stopped
+  # No container needs extra privileges: Caddy listens on unprivileged ports.
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
   env_file:
     - path: .env
       required: false
@@ -29,8 +34,8 @@ services:
       - "${AFWD_HTTP_PORT:-80}:8080"
       - "${AFWD_HTTPS_PORT:-443}:8443"
     volumes:
-      - caddy-data:/data
-      - caddy-config:/config
+      - afwd-data:/data
+      - afwd-config:/config
     depends_on:
       - edge
       - site
@@ -44,7 +49,7 @@ services:
     # The service runs as process 1; init passes on stop signals so it stops promptly.
     init: true
     volumes:
-      - stats:/stats
+      - afwd-stats:/stats
 
   site:
     <<: *service
@@ -54,14 +59,11 @@ services:
     image: ${AFWD_IMAGE:-ghcr.io/thijsk/afwd}-site:${AFWD_TAG:-main}
     init: true
     volumes:
-      - stats:/stats
+      - afwd-stats:/stats
 
-# The same volume names as the earlier single-container setup, so certificates and
-# statistics carry over.
+# Compose names these afwd_afwd-data, afwd_afwd-config and afwd_afwd-stats: the volumes of
+# the earlier single-container compose project, so certificates and statistics carry over.
 volumes:
-  caddy-data:
-    name: afwd-data
-  caddy-config:
-    name: afwd-config
-  stats:
-    name: afwd-stats
+  afwd-data:
+  afwd-config:
+  afwd-stats:

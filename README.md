@@ -57,7 +57,17 @@ docker compose -f deploy/compose.yml pull
 docker compose -f deploy/compose.yml up -d
 ```
 
-The volumes keep the names of the earlier single-container setup (`afwd-data`, `afwd-config`, `afwd-stats`), and Caddy uses the same certificate path, so certificates and statistics carry over. View HTTP access logs with `docker compose -f deploy/compose.yml logs -f proxy`.
+The volumes keep the names of the earlier single-container compose project (`afwd_afwd-data`, `afwd_afwd-config`, `afwd_afwd-stats`), and Caddy uses the same certificate path, so certificates and statistics carry over. View HTTP access logs with `docker compose -f deploy/compose.yml logs -f proxy`.
+
+### Production updates
+
+CI signs every published image with [cosign](https://github.com/sigstore/cosign) keyless signing, so no signing secret exists. The certificate names the workflow and the branch it ran on. The server pulls updates itself; it has no credentials in GitHub and GitHub has none for it.
+
+On the server, `/opt/afwd` holds `compose.yaml` (a copy of `deploy/compose.yml`), `.env` and `deploy/afwd-update`. The systemd timer `deploy/afwd-update.timer` runs that script every 5 minutes. It resolves the `main` images, checks that each one was signed by `container.yml` on `refs/heads/main` and that all three come from the same commit, and then pins their digests in `compose.override.yaml` and runs `docker compose up -d`. An image from any other branch or tag is refused.
+
+- See what it did: `journalctl -u afwd-update`
+- Pause updates: `systemctl stop afwd-update.timer`
+- Roll back: stop the timer, edit the digests in `/opt/afwd/compose.override.yaml` and run `docker compose up -d` in `/opt/afwd`.
 
 To test locally without HTTPS, set `AFWD_HTTP_PORT` (for example `8080`) and send requests with a Host header, such as `curl -H "Host: afwd.nl" http://127.0.0.1:8080/`.
 

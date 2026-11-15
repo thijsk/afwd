@@ -1,0 +1,2 @@
+# Files that run or are read on the Linux server.
+deploy/afwd-update* text eol=lf

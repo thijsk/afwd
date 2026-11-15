@@ -60,6 +60,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless signing: GitHub vouches for the workflow and branch that built the image.
+      # The server only runs images signed by this workflow on main.
+      id-token: write
     steps:
     - name: Check out source
       uses: actions/checkout@v5
@@ -86,6 +89,7 @@ jobs:
           type=sha
 
     - name: Build and publish container
+      id: build
       uses: docker/build-push-action@v6
       with:
         context: .
@@ -98,3 +102,13 @@ jobs:
         cache-to: type=gha,mode=max,scope=${{ matrix.target }}
         provenance: mode=max
         sbom: true
+
+    - name: Install cosign
+      if: github.event_name == 'push'
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign the published image
+      if: github.event_name == 'push'
+      env:
+        IMAGE: ghcr.io/${{ github.repository }}-${{ matrix.target }}@${{ steps.build.outputs.digest }}
+      run: cosign sign --yes "$IMAGE"
