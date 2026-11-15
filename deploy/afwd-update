@@ -25,7 +25,11 @@ flock --nonblock 9 || { echo "another update is running"; exit 0; }
 revision=
 pins=
 for service in $SERVICES; do
-    digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$IMAGE-$service:main")
+    digest=$(docker buildx imagetools inspect "$IMAGE-$service:main" | awk '$1 == "Digest:" { print $2; exit }')
+    case $digest in
+        sha256:????????????????????????????????????????????????????????????????) ;;
+        *) echo "could not resolve $IMAGE-$service:main"; exit 1 ;;
+    esac
     ref="$IMAGE-$service@$digest"
 
     # The signing certificate names the workflow and the branch it ran on. GitHub
