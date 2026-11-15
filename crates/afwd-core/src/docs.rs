@@ -55,6 +55,13 @@ impl DocsConfig {
             .map(|domain| format!("https://{domain}/"))
     }
 
+    /// The address of a help site page, for canonical links and the sitemap.
+    pub fn page_url(&self, path: &str) -> Option<String> {
+        self.help_domain
+            .as_deref()
+            .map(|domain| format!("https://{domain}{path}"))
+    }
+
     pub fn target_host(&self) -> Option<&str> {
         self.target_host.as_deref()
     }

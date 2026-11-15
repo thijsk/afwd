@@ -23,7 +23,7 @@ fn get(uri: &str) -> Request<Body> {
 }
 
 async fn body_text(response: axum::response::Response) -> String {
-    let body = to_bytes(response.into_body(), 1 << 16).await.unwrap();
+    let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
     String::from_utf8(body.to_vec()).unwrap()
 }
 
@@ -170,8 +170,58 @@ async fn robots_txt_disallows_the_api() {
     );
     assert_eq!(
         body_text(response).await,
-        "User-agent: *\nDisallow: /api/\n"
+        "User-agent: *\nDisallow: /api/\n\nSitemap: https://afwd.nl/sitemap.xml\n"
     );
+}
+
+#[tokio::test]
+async fn sitemap_lists_the_help_pages() {
+    let response = app(DocsConfig::with_help_domain("afwd.nl"), None)
+        .oneshot(get("/sitemap.xml"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[CONTENT_TYPE],
+        "application/xml; charset=utf-8"
+    );
+    let body = body_text(response).await;
+    for url in [
+        "https://afwd.nl/",
+        "https://afwd.nl/docs",
+        "https://afwd.nl/spec",
+        "https://afwd.nl/stats",
+        "https://afwd.nl/domains",
+    ] {
+        assert!(body.contains(&format!("<loc>{url}</loc>")), "{url}");
+    }
+
+    // Without a help domain there are no absolute addresses to list.
+    let response = app(DocsConfig::default(), None)
+        .oneshot(get("/sitemap.xml"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn pages_name_their_canonical_address() {
+    let app = app(DocsConfig::with_help_domain("afwd.nl"), None);
+    for (path, canonical) in [
+        ("/", "https://afwd.nl/"),
+        ("/docs", "https://afwd.nl/docs"),
+        ("/spec", "https://afwd.nl/spec"),
+        ("/stats", "https://afwd.nl/stats"),
+        ("/domains", "https://afwd.nl/domains"),
+    ] {
+        let response = app.clone().oneshot(get(path)).await.unwrap();
+        let body = body_text(response).await;
+        assert!(
+            body.contains(&format!("<link rel=\"canonical\" href=\"{canonical}\">")),
+            "{path}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -17,6 +17,7 @@ pub struct Landing {
     pub ipv6: String,
     /// The hostname for CNAME and ALIAS records; empty when there is none.
     pub target: String,
+    pub canonical: Option<String>,
 }
 
 impl Landing {
@@ -38,6 +39,7 @@ impl Landing {
                     .collect(),
             ),
             target: config.target_host().unwrap_or_default().to_owned(),
+            canonical: config.page_url("/"),
         }
     }
 
@@ -57,6 +59,7 @@ pub struct Docs {
     /// Example A and AAAA records.
     pub address_records: Vec<String>,
     pub target_host: Option<String>,
+    pub canonical: Option<String>,
 }
 
 impl Docs {
@@ -64,23 +67,29 @@ impl Docs {
         Self {
             address_records: config.address_records(),
             target_host: config.target_host().map(str::to_owned),
+            canonical: config.page_url("/docs"),
         }
     }
 }
 
 #[derive(Template)]
 #[template(path = "stats.html")]
-pub struct StatsPage;
+pub struct StatsPage {
+    pub canonical: Option<String>,
+}
 
 #[derive(Template)]
 #[template(path = "domains.html")]
-pub struct DomainsPage;
+pub struct DomainsPage {
+    pub canonical: Option<String>,
+}
 
 /// The specification, already laid out and escaped as HTML.
 #[derive(Template)]
 #[template(path = "spec.html")]
 pub struct SpecPage {
     pub html: &'static str,
+    pub canonical: Option<String>,
 }
 
 #[derive(Template)]
@@ -125,6 +134,7 @@ mod tests {
         let page = Docs {
             address_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
             target_host: Some("fwd.afwd.nl".to_owned()),
+            canonical: None,
         }
         .render()
         .unwrap();
@@ -137,6 +147,7 @@ mod tests {
         let page = Docs {
             address_records: vec!["example.com. 14400 A     192.0.2.1".to_owned()],
             target_host: None,
+            canonical: None,
         }
         .render()
         .unwrap();
@@ -146,6 +157,7 @@ mod tests {
         let page = Docs {
             address_records: Vec::new(),
             target_host: None,
+            canonical: None,
         }
         .render()
         .unwrap();
@@ -158,6 +170,7 @@ mod tests {
             ipv4: "198.51.100.7,198.51.100.8".to_owned(),
             ipv6: String::new(),
             target: "fwd.afwd.nl".to_owned(),
+            canonical: None,
         };
         assert_eq!(page.example_address(), "198.51.100.7");
         let html = page.render().unwrap();
@@ -173,6 +186,7 @@ mod tests {
             ipv4: "198.51.100.7".to_owned(),
             ipv6: String::new(),
             target: String::new(),
+            canonical: None,
         }
         .render()
         .unwrap();
@@ -184,6 +198,7 @@ mod tests {
             ipv4: String::new(),
             ipv6: String::new(),
             target: "fwd.afwd.nl".to_owned(),
+            canonical: None,
         }
         .render()
         .unwrap();

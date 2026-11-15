@@ -65,6 +65,7 @@ pub fn router(dns: DnsConfig, docs: DocsConfig, stats: Option<Stats>) -> Router 
         .route("/api/stats/{domain}", get(stats_api))
         .route("/.well-known/security.txt", get(security_txt))
         .route("/robots.txt", get(robots_txt))
+        .route("/sitemap.xml", get(sitemap_xml))
         .route("/healthz", get(health))
         .fallback(not_found)
         .with_state(state)
@@ -98,6 +99,7 @@ async fn spec_page(State(state): AppState, headers: HeaderMap) -> Response {
         StatusCode::OK,
         pages::SpecPage {
             html: spec::SPEC.html(),
+            canonical: state.docs.page_url("/spec"),
         },
     )
 }
@@ -108,11 +110,21 @@ async fn spec_text() -> Response {
 
 async fn stats_page(State(state): AppState, headers: HeaderMap) -> Response {
     count(&state, "/stats", &headers);
-    respond(StatusCode::OK, pages::StatsPage)
+    respond(
+        StatusCode::OK,
+        pages::StatsPage {
+            canonical: state.docs.page_url("/stats"),
+        },
+    )
 }
 
-async fn domains_page() -> Response {
-    respond(StatusCode::OK, pages::DomainsPage)
+async fn domains_page(State(state): AppState) -> Response {
+    respond(
+        StatusCode::OK,
+        pages::DomainsPage {
+            canonical: state.docs.page_url("/domains"),
+        },
+    )
 }
 
 async fn not_found(State(state): AppState) -> Response {
@@ -139,8 +151,33 @@ async fn security_txt() -> Response {
     ))
 }
 
-async fn robots_txt() -> Response {
-    plain_text("User-agent: *\nDisallow: /api/\n")
+/// The pages in the sitemap: the ones linked from every page header.
+const SITEMAP_PATHS: [&str; 5] = ["/", "/docs", "/spec", "/stats", "/domains"];
+
+async fn robots_txt(State(state): AppState) -> Response {
+    let mut robots = String::from("User-agent: *\nDisallow: /api/\n");
+    if let Some(url) = state.docs.page_url("/sitemap.xml") {
+        robots.push_str(&format!("\nSitemap: {url}\n"));
+    }
+    plain_text(robots)
+}
+
+async fn sitemap_xml(State(state): AppState) -> Response {
+    if state.docs.help_domain().is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for url in SITEMAP_PATHS
+        .iter()
+        .filter_map(|path| state.docs.page_url(path))
+    {
+        xml.push_str(&format!("  <url><loc>{url}</loc></url>\n"));
+    }
+    xml.push_str("</urlset>\n");
+    ([(CONTENT_TYPE, "application/xml; charset=utf-8")], xml).into_response()
 }
 
 async fn summary_api(State(state): AppState) -> Response {

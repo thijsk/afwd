@@ -105,6 +105,7 @@ async fn help_site_routes_are_not_served_for_forwarded_domains() {
         "/api/check/example.com",
         "/.well-known/security.txt",
         "/robots.txt",
+        "/sitemap.xml",
     ] {
         let request = Request::builder()
             .uri(path)
