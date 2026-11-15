@@ -2,6 +2,11 @@
 # site container; every other host is a forwarded domain and goes to the edge container.
 {
 	auto_https disable_redirects
+	# No HTTP/3: it needs UDP, which the published ports do not carry, so the
+	# Alt-Svc header Caddy would send only points browsers at a dead port.
+	servers {
+		protocols h1 h2
+	}
 	http_port 8080
 	https_port 8443
 

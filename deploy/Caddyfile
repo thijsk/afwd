@@ -3,6 +3,10 @@
 # afwd.nl) goes to the site; every other host goes to the edge.
 {
 	auto_https disable_redirects
+	# No HTTP/3, as in the container setup (Caddyfile.container).
+	servers {
+		protocols h1 h2
+	}
 	on_demand_tls {
 		ask http://127.0.0.1:8080/internal/cert-check
 	}
