@@ -55,7 +55,9 @@ async fn unknown_path_returns_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    assert!(body_text(response).await.contains("https://afwd.nl/"));
+    let body = body_text(response).await;
+    assert!(body.contains("Page not found"));
+    assert!(!body.contains("Forwarding not configured"));
 }
 
 #[tokio::test]

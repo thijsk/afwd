@@ -92,6 +92,14 @@ pub struct SpecPage {
     pub canonical: Option<String>,
 }
 
+/// A help-site path that does not exist.
+#[derive(Template)]
+#[template(path = "page_not_found.html")]
+pub struct PageNotFound {
+    pub canonical: Option<String>,
+}
+
+/// A forwarded domain without a usable AFWD record.
 #[derive(Template)]
 #[template(path = "not_found.html")]
 pub struct NotFound {

@@ -127,14 +127,10 @@ async fn domains_page(State(state): AppState) -> Response {
     )
 }
 
-async fn not_found(State(state): AppState) -> Response {
+async fn not_found() -> Response {
     respond(
         StatusCode::NOT_FOUND,
-        pages::NotFound {
-            domain: state.docs.help_domain().unwrap_or_default().to_owned(),
-            reason: None,
-            help_url: state.docs.help_url(),
-        },
+        pages::PageNotFound { canonical: None },
     )
 }
 
